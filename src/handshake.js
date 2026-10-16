@@ -5,11 +5,23 @@
  * JSON body describing how to pay (the `accepts` array in x402 v2,
  * `paymentRequirements` in v1). This module checks that contract and
  * returns a structured report — no wallet or signing involved.
+ *
+ * Some endpoints only answer on a specific HTTP method (e.g. a POST-only
+ * endpoint may return an empty-body 402 to GET). Use the `method` option
+ * to probe with a different method.
  */
 
-const REQUIRED_FIELDS = ["scheme", "network", "payTo", "asset", "amount"];
+import {
+  normalizeResponse,
+  validateRequirement,
+} from "./requirements.js";
 
-export async function checkHandshake(url, { timeoutMs = 15000 } = {}) {
+const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
+
+export async function checkHandshake(
+  url,
+  { timeoutMs = 15000, method = "GET" } = {}
+) {
   const startedAt = Date.now();
   const fail = (error, extra = {}) => ({
     url,
@@ -19,12 +31,16 @@ export async function checkHandshake(url, { timeoutMs = 15000 } = {}) {
     ...extra,
   });
 
+  const httpMethod = String(method || "GET").toUpperCase();
+  const init = { method: httpMethod, signal: AbortSignal.timeout(timeoutMs) };
+  if (METHODS_WITH_BODY.has(httpMethod)) {
+    init.headers = { "content-type": "application/json" };
+    init.body = "{}";
+  }
+
   let res;
   try {
-    res = await fetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    res = await fetch(url, init);
   } catch (err) {
     return fail(`request failed: ${err.cause?.message || err.message}`);
   }
@@ -33,57 +49,65 @@ export async function checkHandshake(url, { timeoutMs = 15000 } = {}) {
   if (res.status !== 402) {
     return fail(`expected HTTP 402 Payment Required, got ${res.status}`, {
       status: res.status,
+      method: httpMethod,
     });
+  }
+
+  const rawText = await res.text();
+  if (!rawText.trim()) {
+    return fail(
+      `402 response has an empty body (probed with ${httpMethod}). ` +
+        "Some endpoints only describe payment on a specific method — " +
+        "retry with --method POST.",
+      { status: 402, method: httpMethod }
+    );
   }
 
   let body;
   try {
-    body = await res.json();
+    body = JSON.parse(rawText);
   } catch {
-    return fail("402 response body is not valid JSON", { status: 402 });
+    return fail("402 response body is not valid JSON", {
+      status: 402,
+      method: httpMethod,
+    });
   }
 
-  const accepts = body.accepts ?? body.paymentRequirements;
-  if (!Array.isArray(accepts) || accepts.length === 0) {
-    return fail(
-      "402 response contains no payment requirements (expected a non-empty `accepts` array)",
-      { status: 402 }
-    );
+  let parsed;
+  try {
+    parsed = normalizeResponse(body);
+  } catch (err) {
+    return fail(err.message, { status: 402, method: httpMethod });
   }
 
-  const first = accepts[0];
-  const missing = REQUIRED_FIELDS.filter(
-    (k) => first[k] === undefined || first[k] === null || first[k] === ""
-  );
+  const first = parsed.requirements[0];
+  const { ok, missing } = validateRequirement(first);
 
   const warnings = [];
-  if (accepts.length > 1) {
+  if (parsed.requirements.length > 1) {
     warnings.push(
-      `${accepts.length} payment options offered; validated the first`
+      `${parsed.requirements.length} payment options offered; validated the first`
     );
   }
   if (body.error) {
     warnings.push(`server included an error field: ${body.error}`);
   }
+  if (parsed.version === null) {
+    warnings.push(
+      "could not determine the x402 version from the response; treated generically"
+    );
+  }
 
   return {
     url,
-    ok: missing.length === 0,
+    ok,
     status: 402,
+    method: httpMethod,
     latencyMs,
-    error: missing.length
-      ? `first payment requirement is missing: ${missing.join(", ")}`
-      : undefined,
-    requirements: {
-      scheme: first.scheme,
-      network: first.network,
-      payTo: first.payTo,
-      asset: first.asset,
-      amount: first.amount,
-      maxTimeoutSeconds: first.maxTimeoutSeconds,
-      extra: first.extra,
-    },
-    options: accepts.length,
+    version: parsed.version,
+    error: ok ? undefined : `first payment requirement is missing: ${missing.join(", ")}`,
+    requirements: first,
+    options: parsed.requirements.length,
     warnings,
   };
 }
@@ -91,14 +115,16 @@ export async function checkHandshake(url, { timeoutMs = 15000 } = {}) {
 export function formatReport(r) {
   const lines = [
     `x402 handshake check: ${r.url}`,
-    `status: ${r.ok ? "OK" : "FAIL"} (${r.latencyMs}ms)`,
+    `status: ${r.ok ? "OK" : "FAIL"} (${r.latencyMs}ms, ${r.method || "GET"})`,
   ];
+  if (r.version) lines.push(`x402 version: v${r.version}`);
   if (r.error) lines.push(`error: ${r.error}`);
   if (r.requirements) {
     const q = r.requirements;
     lines.push(`scheme: ${q.scheme} | network: ${q.network}`);
     lines.push(`payTo: ${q.payTo}`);
     lines.push(`price: ${q.amount} (raw units) of ${q.asset}`);
+    if (q.description) lines.push(`description: ${q.description}`);
   }
   for (const w of r.warnings || []) lines.push(`warning: ${w}`);
   return lines.join("\n");

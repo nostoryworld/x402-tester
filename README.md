@@ -18,6 +18,8 @@ node src/index.js check <url>
 
 ```sh
 x402-tester check https://example.com/paid-api
+# some endpoints are POST-only — probe them with a different method:
+x402-tester check https://example.com/paid-api --method POST
 ```
 
 Example output for a healthy endpoint:

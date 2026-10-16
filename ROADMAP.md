@@ -4,7 +4,7 @@ One genuine, tested increment per day. Each day ships as a single commit.
 Checked boxes are done; the next unchecked day is always the one to build.
 
 - [x] **Day 1** — Scaffold + 402 handshake validator (`check` command) with tests
-- [ ] **Day 2** — Normalize payment requirements: handle v1 `paymentRequirements` and v2 `accepts` shapes uniformly, with unit tests for both; add `--method` flag (POST-only endpoints like rugcheck answer GET 402s with an empty body)
+- [x] **Day 2** — Normalize payment requirements: handle v1 `paymentRequirements` and v2 `accepts` shapes uniformly, with unit tests for both; add `--method` flag (POST-only endpoints like rugcheck answer GET 402s with an empty body)
 - [ ] **Day 3** — Human-readable price formatting: resolve asset decimals and show real token amounts instead of raw units
 - [ ] **Day 4** — Facilitator reachability check: probe the facilitator's `/verify` endpoint and report reachability
 - [ ] **Day 5** — x402scan discovery check: report whether the endpoint is listed on x402scan
