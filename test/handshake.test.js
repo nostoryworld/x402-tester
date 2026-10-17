@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { checkHandshake } from "../src/handshake.js";
+import { checkHandshake, formatReport } from "../src/handshake.js";
 
 const VALID_402 = {
   x402Version: 2,
@@ -10,7 +10,7 @@ const VALID_402 = {
       scheme: "exact",
       network: "base",
       payTo: "0xB3f534765B75Fa388e2d4EE5D6aD0210742eAde9",
-      asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda4a1300",
+      asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
       amount: "20000",
       maxTimeoutSeconds: 60,
     },
@@ -94,6 +94,20 @@ test("flags missing required fields in the payment requirement", async () => {
     const r = await checkHandshake(addr(srv));
     assert.equal(r.ok, false);
     assert.match(r.error, /missing/);
+  } finally {
+    srv.close();
+  }
+});
+
+test("report renders a human-readable price for a known asset", async () => {
+  const srv = await startServer((req, res) => {
+    res.writeHead(402, { "content-type": "application/json" });
+    res.end(JSON.stringify(VALID_402));
+  });
+  try {
+    const r = await checkHandshake(addr(srv));
+    assert.equal(r.price, "0.02 USDC");
+    assert.match(formatReport(r), /price: 0\.02 USDC/);
   } finally {
     srv.close();
   }

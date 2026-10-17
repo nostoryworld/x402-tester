@@ -15,6 +15,7 @@ import {
   normalizeResponse,
   validateRequirement,
 } from "./requirements.js";
+import { formatPrice } from "./price.js";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
 
@@ -107,6 +108,7 @@ export async function checkHandshake(
     version: parsed.version,
     error: ok ? undefined : `first payment requirement is missing: ${missing.join(", ")}`,
     requirements: first,
+    price: formatPrice(first),
     options: parsed.requirements.length,
     warnings,
   };
@@ -123,7 +125,7 @@ export function formatReport(r) {
     const q = r.requirements;
     lines.push(`scheme: ${q.scheme} | network: ${q.network}`);
     lines.push(`payTo: ${q.payTo}`);
-    lines.push(`price: ${q.amount} (raw units) of ${q.asset}`);
+    lines.push(`price: ${formatPrice(q)}`);
     if (q.description) lines.push(`description: ${q.description}`);
   }
   for (const w of r.warnings || []) lines.push(`warning: ${w}`);

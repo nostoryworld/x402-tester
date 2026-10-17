@@ -29,7 +29,7 @@ x402 handshake check: https://example.com/paid-api
 status: OK (212ms)
 scheme: exact | network: base
 payTo: 0xB3f5...de9
-price: 20000 (raw units) of 0x8335...1300
+price: 0.02 USDC
 ```
 
 Exit code is `0` when the handshake is valid, `1` otherwise — so it drops straight into CI.
