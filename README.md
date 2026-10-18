@@ -20,6 +20,8 @@ node src/index.js check <url>
 x402-tester check https://example.com/paid-api
 # some endpoints are POST-only — probe them with a different method:
 x402-tester check https://example.com/paid-api --method POST
+# probe the facilitator behind the handshake (any answer, even a 4xx, means it's alive):
+x402-tester facilitator https://facilitator.example.com
 ```
 
 Example output for a healthy endpoint:
