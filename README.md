@@ -22,6 +22,8 @@ x402-tester check https://example.com/paid-api
 x402-tester check https://example.com/paid-api --method POST
 # probe the facilitator behind the handshake (any answer, even a 4xx, means it's alive):
 x402-tester facilitator https://facilitator.example.com
+# check whether your endpoint's host shows up in x402scan's marketplace (exit 0 = listed):
+x402-tester x402scan https://example.com/paid-api
 ```
 
 Example output for a healthy endpoint:

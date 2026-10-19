@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { checkHandshake, formatReport } from "./handshake.js";
 import { checkFacilitator, formatFacilitatorReport } from "./facilitator.js";
+import { checkX402scan, formatX402scanReport } from "./x402scan.js";
 
 const args = process.argv.slice(2);
 const [cmd, url, ...flags] = args;
@@ -21,6 +22,7 @@ function usage() {
 Usage:
   x402-tester check <url> [--method <METHOD>]
   x402-tester facilitator <facilitator-url>
+  x402-tester x402scan <url>
 
 Options:
   --method, -m   HTTP method for the handshake probe (default: GET).
@@ -32,11 +34,14 @@ Commands:
   facilitator    Probe a facilitator's /verify endpoint: an empty POST
                  proves it's alive (a 4xx rejecting the probe is the
                  expected healthy answer).
+  x402scan       Check whether an endpoint's host is listed on x402scan's
+                 public marketplace (exit 0 = listed).
 
 Examples:
   x402-tester check https://example.com/paid-api
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester facilitator https://facilitator.example.com
+  x402-tester x402scan https://example.com/paid-api
 `);
 }
 
@@ -48,6 +53,10 @@ if (cmd === "check" && url) {
   const report = await checkFacilitator(url);
   console.log(formatFacilitatorReport(report));
   process.exitCode = report.reachable ? 0 : 1;
+} else if (cmd === "x402scan" && url) {
+  const report = await checkX402scan(url);
+  console.log(formatX402scanReport(report));
+  process.exitCode = report.listed ? 0 : 1;
 } else {
   usage();
   process.exitCode = cmd ? 1 : 0;

@@ -7,7 +7,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 2** — Normalize payment requirements: handle v1 `paymentRequirements` and v2 `accepts` shapes uniformly, with unit tests for both; add `--method` flag (POST-only endpoints like rugcheck answer GET 402s with an empty body)
 - [x] **Day 3** — Human-readable price formatting: resolve asset decimals and show real token amounts instead of raw units
 - [x] **Day 4** — Facilitator reachability check: probe the facilitator's `/verify` endpoint and report reachability
-- [ ] **Day 5** — x402scan discovery check: report whether the endpoint is listed on x402scan
+- [x] **Day 5** — x402scan discovery check: report whether the endpoint is listed on x402scan
 - [ ] **Day 6** — `pay` command: sign an x402 payment payload with viem (EVM, local test key only)
 - [ ] **Day 7** — Paid end-to-end test flow against a mock facilitator (no real funds)
 - [ ] **Day 8** — Solana payment flow support on devnet
