@@ -24,6 +24,11 @@ x402-tester check https://example.com/paid-api --method POST
 x402-tester facilitator https://facilitator.example.com
 # check whether your endpoint's host shows up in x402scan's marketplace (exit 0 = listed):
 x402-tester x402scan https://example.com/paid-api
+# sign an x402 payment payload for an endpoint (EVM exact-scheme only).
+# Signs locally with a throwaway test key — nothing is sent, no funds move:
+x402-tester pay https://example.com/paid-api
+# or sign with your own test key (X402_TEST_KEY also works):
+x402-tester pay https://example.com/paid-api --key 0xYOUR_TEST_KEY
 ```
 
 Example output for a healthy endpoint:
