@@ -29,6 +29,12 @@ x402-tester x402scan https://example.com/paid-api
 x402-tester pay https://example.com/paid-api
 # or sign with your own test key (X402_TEST_KEY also works):
 x402-tester pay https://example.com/paid-api --key 0xYOUR_TEST_KEY
+# run the full paid flow end to end against local mock servers —
+# handshake, sign, facilitator /verify, paid request. No chain, no funds:
+x402-tester e2e
+# start a mock facilitator + mock paid endpoint on localhost for manual
+# testing (curl your own client against them); stops on Ctrl-C:
+x402-tester mock
 ```
 
 Example output for a healthy endpoint:

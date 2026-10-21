@@ -9,7 +9,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 4** — Facilitator reachability check: probe the facilitator's `/verify` endpoint and report reachability
 - [x] **Day 5** — x402scan discovery check: report whether the endpoint is listed on x402scan
 - [x] **Day 6** — `pay` command: sign an x402 payment payload with viem (EVM, local test key only)
-- [ ] **Day 7** — Paid end-to-end test flow against a mock facilitator (no real funds)
+- [x] **Day 7** — Paid end-to-end test flow against a mock facilitator (no real funds)
 - [ ] **Day 8** — Solana payment flow support on devnet
 - [ ] **Day 9** — JSON report output (`--json` flag)
 - [ ] **Day 10** — Markdown report export (`--report md`)

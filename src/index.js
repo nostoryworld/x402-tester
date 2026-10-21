@@ -7,12 +7,28 @@ import {
   pickSignableRequirement,
   generateTestKey,
 } from "./pay.js";
+import {
+  runPaidEndToEnd,
+  formatEndToEndReport,
+  defaultTestRequirement,
+} from "./endtoend.js";
+import { startMockFacilitator } from "./mockFacilitator.js";
+import { startMockEndpoint } from "./endtoend.js";
 
 const args = process.argv.slice(2);
-const [cmd, url, ...flags] = args;
+let [cmd, url, ...flags] = args;
+
+// `e2e` and `mock` take no URL — a leading flag was captured as `url`,
+// so fold it back into the flags before parsing.
+if ((cmd === "e2e" || cmd === "mock") && url && url.startsWith("-")) {
+  flags = [url, ...flags];
+  url = undefined;
+}
 
 let method = "GET";
 let key = process.env.X402_TEST_KEY || null;
+let mockPort = 4021;
+let endpointPort = 4022;
 // support `--method POST` and `--method=POST` (plus `-m` shorthand),
 // plus `--key 0x...` / `--key=0x...` for the signing key
 for (let i = 0; i < flags.length; i++) {
@@ -24,6 +40,12 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--key" && flags[i + 1]) key = flags[i + 1];
   const k = flags[i].match(/^--key=(.+)$/);
   if (k) key = k[1];
+  if (flags[i] === "--port" && flags[i + 1]) mockPort = Number(flags[i + 1]);
+  const p = flags[i].match(/^--port=(\d+)$/);
+  if (p) mockPort = Number(p[1]);
+  if (flags[i] === "--endpoint-port" && flags[i + 1]) endpointPort = Number(flags[i + 1]);
+  const ep = flags[i].match(/^--endpoint-port=(\d+)$/);
+  if (ep) endpointPort = Number(ep[1]);
 }
 
 function formatPayReport(signed) {
@@ -51,6 +73,8 @@ function usage() {
 Usage:
   x402-tester check <url> [--method <METHOD>]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>]
+  x402-tester e2e [--key <0x...>]
+  x402-tester mock [--port <n>] [--endpoint-port <n>]
   x402-tester facilitator <facilitator-url>
   x402-tester x402scan <url>
 
@@ -62,12 +86,21 @@ Options:
                  X402_TEST_KEY). Omit it and a throwaway test key is
                  generated for the run — it has no funds and signs only
                  locally, so nothing can move.
+  --port         Port for the mock facilitator (default: 4021).
+  --endpoint-port
+                 Port for the mock paid endpoint (default: 4022).
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
   pay            Sign an x402 payment payload for an endpoint (EVM,
                  exact-scheme requirements only). Signs locally and prints
                  the payload + base64 X-PAYMENT header; sends nothing.
+  e2e            Run the full paid flow against local mock servers —
+                 handshake, sign, facilitator /verify, paid request —
+                 with a throwaway test key. No chain, no funds.
+  mock           Start a mock facilitator + mock paid endpoint on
+                 localhost for manual testing (curl your own client
+                 against them); stops on Ctrl-C.
   facilitator    Probe a facilitator's /verify endpoint: an empty POST
                  proves it's alive (a 4xx rejecting the probe is the
                  expected healthy answer).
@@ -78,6 +111,8 @@ Examples:
   x402-tester check https://example.com/paid-api
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
+  x402-tester e2e
+  x402-tester mock
   x402-tester facilitator https://facilitator.example.com
   x402-tester x402scan https://example.com/paid-api
 `);
@@ -116,12 +151,47 @@ async function runPay(targetUrl) {
   }
 }
 
+async function runE2E() {
+  const ephemeral = !key;
+  const signingKey = key || generateTestKey();
+  if (ephemeral) {
+    console.error(
+      "using a fresh throwaway test key (no funds, local only) — pass --key to use your own test key."
+    );
+  }
+  const report = await runPaidEndToEnd({ privateKey: signingKey });
+  console.log(formatEndToEndReport(report));
+  process.exitCode = report.ok ? 0 : 1;
+}
+
+async function runMock() {
+  const facilitator = await startMockFacilitator({ port: mockPort });
+  const endpoint = await startMockEndpoint({
+    facilitatorUrl: facilitator.url,
+    port: endpointPort,
+  });
+  const raw = defaultTestRequirement();
+  console.log(`mock facilitator:  ${facilitator.url}   (POST /verify, POST /settle)`);
+  console.log(`mock paid endpoint: ${endpoint.url}   (unpaid → 402, X-PAYMENT → 200)`);
+  console.log(`\nThe endpoint's 402 body offers this requirement (no real funds involved):`);
+  console.log(JSON.stringify(raw, null, 2));
+  console.log(`\nTry: curl -i ${endpoint.url}/`);
+  console.log("Press Ctrl-C to stop.");
+  await new Promise((resolve) => process.on("SIGINT", resolve));
+  await endpoint.close();
+  await facilitator.close();
+}
+
 if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method });
   console.log(formatReport(report));
   process.exitCode = report.ok ? 0 : 1;
 } else if (cmd === "pay" && url) {
   await runPay(url);
+} else if (cmd === "e2e" && !url) {
+  await runE2E();
+} else if (cmd === "mock" && !url) {
+  await runMock();
 } else if (cmd === "facilitator" && url) {
   const report = await checkFacilitator(url);
   console.log(formatFacilitatorReport(report));

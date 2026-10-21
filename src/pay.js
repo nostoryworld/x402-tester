@@ -31,7 +31,9 @@ export function chainIdFromNetwork(network) {
   return id;
 }
 
-const AUTHORIZATION_TYPES = {
+/** EIP-712 type definition for TransferWithAuthorization (exported so the
+ * mock facilitator can verify signatures against the same schema). */
+export const AUTHORIZATION_TYPES = {
   TransferWithAuthorization: [
     { name: "from", type: "address" },
     { name: "to", type: "address" },
