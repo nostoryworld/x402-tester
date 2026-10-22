@@ -24,11 +24,16 @@ x402-tester check https://example.com/paid-api --method POST
 x402-tester facilitator https://facilitator.example.com
 # check whether your endpoint's host shows up in x402scan's marketplace (exit 0 = listed):
 x402-tester x402scan https://example.com/paid-api
-# sign an x402 payment payload for an endpoint (EVM exact-scheme only).
+# sign an x402 payment payload for an endpoint (EVM exact-scheme via
+# EIP-712, or Solana exact-scheme via a signed SPL transfer transaction).
 # Signs locally with a throwaway test key — nothing is sent, no funds move:
 x402-tester pay https://example.com/paid-api
 # or sign with your own test key (X402_TEST_KEY also works):
 x402-tester pay https://example.com/paid-api --key 0xYOUR_TEST_KEY
+# Solana endpoints (network solana:devnet etc.): --key takes a base58
+# secret key or JSON byte array (X402_SOLANA_TEST_KEY also works). A fresh
+# devnet blockhash is fetched automatically; pin one with --blockhash:
+x402-tester pay https://example.com/solana-api --blockhash <BLOCKHASH>
 # run the full paid flow end to end against local mock servers —
 # handshake, sign, facilitator /verify, paid request. No chain, no funds:
 x402-tester e2e

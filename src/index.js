@@ -8,6 +8,14 @@ import {
   generateTestKey,
 } from "./pay.js";
 import {
+  signSolanaPayment,
+  parseSolanaSecretKey,
+  generateSolanaTestKeypair,
+  isSolanaNetwork,
+  defaultRpcForNetwork,
+  KNOWN_MINTS,
+} from "./solana.js";
+import {
   runPaidEndToEnd,
   formatEndToEndReport,
   defaultTestRequirement,
@@ -27,8 +35,12 @@ if ((cmd === "e2e" || cmd === "mock") && url && url.startsWith("-")) {
 
 let method = "GET";
 let key = process.env.X402_TEST_KEY || null;
+let solanaKey = process.env.X402_SOLANA_TEST_KEY || null;
 let mockPort = 4021;
 let endpointPort = 4022;
+let rpcUrl; // undefined = the requirement's cluster RPC; --rpc overrides
+let blockhash = null; // --blockhash pins it (skips the RPC fetch)
+let decimals; // --decimals overrides the mint decimals (default: extra.decimals, then known mints, then 6)
 // support `--method POST` and `--method=POST` (plus `-m` shorthand),
 // plus `--key 0x...` / `--key=0x...` for the signing key
 for (let i = 0; i < flags.length; i++) {
@@ -46,6 +58,15 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--endpoint-port" && flags[i + 1]) endpointPort = Number(flags[i + 1]);
   const ep = flags[i].match(/^--endpoint-port=(\d+)$/);
   if (ep) endpointPort = Number(ep[1]);
+  if (flags[i] === "--rpc" && flags[i + 1]) rpcUrl = flags[i + 1];
+  const r = flags[i].match(/^--rpc=(.+)$/);
+  if (r) rpcUrl = r[1];
+  if (flags[i] === "--blockhash" && flags[i + 1]) blockhash = flags[i + 1];
+  const b = flags[i].match(/^--blockhash=(.+)$/);
+  if (b) blockhash = b[1];
+  if (flags[i] === "--decimals" && flags[i + 1]) decimals = Number(flags[i + 1]);
+  const d = flags[i].match(/^--decimals=(\d+)$/);
+  if (d) decimals = Number(d[1]);
 }
 
 function formatPayReport(signed) {
@@ -67,6 +88,33 @@ function formatPayReport(signed) {
   ].join("\n");
 }
 
+function formatSolanaPayReport(signed, requirement) {
+  const mintInfo = KNOWN_MINTS[requirement.asset];
+  const mintLabel = mintInfo
+    ? `${mintInfo.symbol} (${mintInfo.cluster})`
+    : "SPL token";
+  const selfPaid = signed.feePayer === signed.payer;
+  return [
+    `x402 payment signed for: ${url}`,
+    `payer: ${signed.payer}`,
+    `payTo: ${requirement.payTo}`,
+    `amount: ${requirement.amount} atomic units of ${mintLabel}`,
+    `mint: ${requirement.asset}`,
+    `network: ${signed.payload.network}`,
+    `fee payer: ${signed.feePayer} ${selfPaid ? "(you — fully signed)" : "(facilitator co-signs and broadcasts)"}`,
+    `transaction signature: ${signed.signature}`,
+    ``,
+    `Send it as the PAYMENT-SIGNATURE header (base64):`,
+    signed.header,
+    ``,
+    `curl example:`,
+    `  curl -H "PAYMENT-SIGNATURE: ${signed.header.slice(0, 40)}…" ${url}`,
+    ``,
+    `Local-only signature — nothing was broadcast. The endpoint's`,
+    `facilitator verifies the transaction, co-signs as fee payer, and settles.`,
+  ].join("\n");
+}
+
 function usage() {
   console.log(`x402-tester — dev toolkit for x402 payment endpoints
 
@@ -85,16 +133,28 @@ Options:
   --key          Private key used to sign the payment (also reads
                  X402_TEST_KEY). Omit it and a throwaway test key is
                  generated for the run — it has no funds and signs only
-                 locally, so nothing can move.
+                 locally, so nothing can move. For Solana requirements
+                 --key takes a base58 secret key or a JSON byte array
+                 (X402_SOLANA_TEST_KEY also works).
+  --rpc          Solana RPC used to fetch a fresh blockhash for the
+                 payment transaction (default: the requirement's cluster
+                 RPC; skipped when --blockhash is given or the endpoint
+                 supplies extra.recentBlockhash).
+  --blockhash    Pin the Solana transaction's recent blockhash explicitly.
+  --decimals     SPL mint decimals for the Solana transfer (default:
+                 extra.decimals, then known mints, then 6).
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
-  pay            Sign an x402 payment payload for an endpoint (EVM,
-                 exact-scheme requirements only). Signs locally and prints
-                 the payload + base64 X-PAYMENT header; sends nothing.
+  pay            Sign an x402 payment payload for an endpoint: EVM
+                 exact-scheme requirements via EIP-712, Solana
+                 exact-scheme requirements (e.g. solana:devnet) via a
+                 signed SPL transfer transaction. Signs locally and
+                 prints the payload + base64 payment header; sends
+                 nothing.
   e2e            Run the full paid flow against local mock servers —
                  handshake, sign, facilitator /verify, paid request —
                  with a throwaway test key. No chain, no funds.
@@ -111,6 +171,7 @@ Examples:
   x402-tester check https://example.com/paid-api
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
+  x402-tester pay https://example.com/solana-api --blockhash <hash>
   x402-tester e2e
   x402-tester mock
   x402-tester facilitator https://facilitator.example.com
@@ -135,6 +196,10 @@ async function runPay(targetUrl) {
     process.exitCode = 1;
     return;
   }
+  if (isSolanaNetwork(requirement.network)) {
+    await runSolanaPay(requirement);
+    return;
+  }
   const ephemeral = !key;
   const signingKey = key || generateTestKey();
   if (ephemeral) {
@@ -151,8 +216,40 @@ async function runPay(targetUrl) {
   }
 }
 
-async function runE2E() {
-  const ephemeral = !key;
+async function runSolanaPay(requirement) {
+  const ephemeral = !key && !solanaKey;
+  const keyInput = solanaKey || key || null;
+  let keypair;
+  if (keyInput) {
+    try {
+      keypair = parseSolanaSecretKey(keyInput);
+    } catch (err) {
+      console.error(`cannot sign: bad Solana key — ${err.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    keypair = generateSolanaTestKeypair();
+  }
+  if (ephemeral) {
+    console.error(
+      "warning: no --key given — signing with a fresh throwaway test keypair (no funds, local only)."
+    );
+  }
+  try {
+    const signed = await signSolanaPayment(requirement, keypair, {
+      blockhash,
+      decimals,
+      rpcUrl: rpcUrl === undefined ? defaultRpcForNetwork(requirement.network) : rpcUrl,
+    });
+    console.log(formatSolanaPayReport(signed, requirement));
+  } catch (err) {
+    console.error(`cannot sign: ${err.message}`);
+    process.exitCode = 1;
+  }
+}
+
+async function runE2E() {  const ephemeral = !key;
   const signingKey = key || generateTestKey();
   if (ephemeral) {
     console.error(

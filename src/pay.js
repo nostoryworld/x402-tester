@@ -19,6 +19,7 @@ import {
   privateKeyToAccount,
 } from "viem/accounts";
 import { recoverTypedDataAddress } from "viem";
+import { isSolanaNetwork } from "./solana.js";
 
 /** CAIP-2 `eip155:<chainId>` → numeric chain id. Plain numeric strings work too. */
 export function chainIdFromNetwork(network) {
@@ -178,20 +179,27 @@ export function generateTestKey() {
 
 /**
  * Pick the first requirement this signer can handle: scheme "exact"
- * on an EVM network. Throws when nothing matches.
+ * on an EVM (eip155) or Solana network. Throws when nothing matches.
  */
 export function pickSignableRequirement(requirements) {
   const list = Array.isArray(requirements) ? requirements : [];
   for (const req of list) {
     if (req.scheme !== "exact") continue;
-    try {
-      chainIdFromNetwork(req.network);
+    if (isEvmNetwork(req.network) || isSolanaNetwork(req.network)) {
       return req;
-    } catch {
-      continue;
     }
   }
   throw new Error(
-    "no signable payment requirement found (need scheme \"exact\" on an eip155 network)"
+    "no signable payment requirement found (need scheme \"exact\" on an eip155 or solana network)"
   );
+}
+
+/** True when the network identifier is EVM (eip155) — false for anything else. */
+function isEvmNetwork(network) {
+  try {
+    chainIdFromNetwork(network);
+    return true;
+  } catch {
+    return false;
+  }
 }

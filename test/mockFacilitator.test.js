@@ -244,10 +244,10 @@ describe("verifyPaymentPayload (pure)", () => {
     assert.deepEqual(verdict, { isValid: true });
   });
 
-  it("rejects non-EVM requirements", async () => {
-    const sol = { ...BASE_RAW, network: "solana:mainnet" };
-    const verdict = await verifyPaymentPayload(await signedPayload(), [sol], { nowSec: NOW });
+  it("rejects unsupported networks", async () => {
+    const alien = { ...BASE_RAW, network: "starknet:mainnet" };
+    const verdict = await verifyPaymentPayload(await signedPayload(), [alien], { nowSec: NOW });
     assert.equal(verdict.isValid, false);
-    assert.match(verdict.invalidReason, /only verifies EVM/);
+    assert.match(verdict.invalidReason, /unsupported network/);
   });
 });

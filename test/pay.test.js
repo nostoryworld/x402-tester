@@ -148,15 +148,18 @@ describe("generateTestKey", () => {
 });
 
 describe("pickSignableRequirement", () => {
-  const solanaReq = { ...BASE_REQ, network: "solana:mainnet", scheme: "exact" };
+  const solanaReq = { ...BASE_REQ, network: "solana:devnet", scheme: "exact" };
   const permitReq = { ...BASE_REQ, scheme: "permit2" };
+  const alienReq = { ...BASE_REQ, network: "starknet:mainnet", scheme: "exact" };
 
-  it("skips non-EVM and non-exact entries to find a signable one", () => {
-    assert.equal(pickSignableRequirement([solanaReq, permitReq, BASE_REQ]), BASE_REQ);
+  it("picks the first signable requirement, EVM or Solana", () => {
+    assert.equal(pickSignableRequirement([solanaReq, BASE_REQ]), solanaReq);
+    assert.equal(pickSignableRequirement([permitReq, BASE_REQ]), BASE_REQ);
+    assert.equal(pickSignableRequirement([alienReq, solanaReq]), solanaReq);
   });
   it("throws when nothing is signable", () => {
     assert.throws(
-      () => pickSignableRequirement([solanaReq, permitReq]),
+      () => pickSignableRequirement([alienReq, permitReq]),
       /no signable payment requirement/
     );
     assert.throws(() => pickSignableRequirement([]), /no signable payment requirement/);

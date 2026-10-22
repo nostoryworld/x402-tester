@@ -3,51 +3,121 @@
  *
  * A real facilitator's `/verify` endpoint checks that a signed payment
  * payload is well-formed and would settle on-chain. This mock does the
- * same checks locally: it recovers the EIP-712 TransferWithAuthorization
- * signer with viem and validates the authorization against the payment
- * requirement — signature validity, amount, payee, asset, network, and
- * the validity window — without ever touching a chain.
+ * same checks locally, for both supported payment families:
+ *
+ * - EVM: recovers the EIP-712 TransferWithAuthorization signer with
+ *   viem and validates the authorization against the payment
+ *   requirement — signature validity, amount, payee, asset, network,
+ *   and the validity window.
+ * - Solana: deserializes the base64 wire VersionedTransaction from the
+ *   payload and validates the x402 exact-scheme layout — v0 message,
+ *   fee-payer slot, program whitelist, a TransferChecked whose
+ *   mint/amount/destination match the requirement, and a valid payer
+ *   signature. Blockhash recency is NOT checked (needs an RPC); a live
+ *   facilitator checks that.
+ *
+ * Nothing ever touches a chain.
  *
  * `POST /verify`  — x402 verify shape `{ x402Version, paymentPayload, paymentRequirements }`
  *                    → `{ isValid, invalidReason? }`
  * `POST /settle`  — verifies first, then returns a mock settlement receipt.
- *                    The `transaction` hash is fabricated (derived from the
- *                    payment nonce) and represents nothing on any chain.
+ *                    EVM transaction hashes are fabricated (derived from
+ *                    the payment nonce); Solana receipts echo the
+ *                    transaction's real signature, which represents
+ *                    nothing on any chain until a facilitator broadcasts it.
  */
 
 import { createServer } from "node:http";
 import { recoverTypedDataAddress } from "viem";
 import { AUTHORIZATION_TYPES, eip712Domain, chainIdFromNetwork } from "./pay.js";
+import {
+  isSolanaNetwork,
+  verifySolanaTransaction,
+} from "./solana.js";
+import { VersionedTransaction } from "@solana/web3.js";
 
 /**
  * Verify one signed payment payload against the offered payment
- * requirements. Pure function — no network, no clock beyond `nowSec`.
+ * requirements, dispatching to the EVM or Solana verifier by the
+ * requirement's network family. Pure function — no network, no clock
+ * beyond `nowSec`.
  * Returns { isValid: true } or { isValid: false, invalidReason }.
  */
 export async function verifyPaymentPayload(paymentPayload, paymentRequirements, { nowSec } = {}) {
-  const now = nowSec ?? Math.floor(Date.now() / 1000);
   const invalid = (reason) => ({ isValid: false, invalidReason: reason });
 
   if (!paymentPayload || typeof paymentPayload !== "object") {
     return invalid("paymentPayload must be an object");
   }
-  const inner = paymentPayload.payload;
-  const auth = inner && inner.authorization;
-  if (!inner || typeof inner.signature !== "string" || !auth) {
-    return invalid("paymentPayload is missing signature/authorization");
-  }
 
-  // the payment must match one offered requirement by network; the asset
-  // is bound through the EIP-712 domain (verifyingContract) at signature
-  // recovery time below.
   const list = Array.isArray(paymentRequirements)
     ? paymentRequirements
     : [paymentRequirements];
+  // the payment must match one offered requirement by network
   const req =
     list.find((r) => r && r.network === paymentPayload.network) ??
     list.find((r) => r && typeof r === "object");
   if (!req) {
     return invalid("no payment requirement offered to verify against");
+  }
+
+  if (isSolanaNetwork(req.network)) {
+    return verifySolanaPayload(paymentPayload, req);
+  }
+  try {
+    chainIdFromNetwork(req.network);
+  } catch {
+    return invalid(
+      `unsupported network "${req.network}" (mock verifies eip155 and solana networks only)`
+    );
+  }
+  return verifyEvmPayload(paymentPayload, req, { nowSec });
+}
+
+/**
+ * Verify one signed Solana payment payload: the inner payload must
+ * carry a base64 wire transaction, which is validated against the
+ * requirement (see verifySolanaTransaction in solana.js).
+ */
+async function verifySolanaPayload(paymentPayload, req) {
+  const invalid = (reason) => ({ isValid: false, invalidReason: reason });
+  const inner = paymentPayload.payload;
+  const b64 =
+    inner && typeof inner.transaction === "string" ? inner.transaction : null;
+  if (!b64) {
+    return invalid(
+      "paymentPayload is missing payload.transaction (the Solana exact scheme wants a base64 wire transaction)"
+    );
+  }
+  let tx;
+  try {
+    tx = VersionedTransaction.deserialize(Buffer.from(b64, "base64"));
+  } catch {
+    return invalid("payload.transaction is not a valid serialized Solana transaction");
+  }
+  try {
+    const { signature, payer } = await verifySolanaTransaction(tx, req);
+    return { isValid: true, signature, payer, solana: true };
+  } catch (err) {
+    return invalid(err.message);
+  }
+}
+
+/**
+ * Verify one signed EVM payment payload: recover the EIP-712
+ * TransferWithAuthorization signer and validate the authorization
+ * against the requirement — signature validity, amount, payee, asset,
+ * network, and the validity window. The asset is bound through the
+ * EIP-712 domain (verifyingContract) at signature recovery time.
+ */
+async function verifyEvmPayload(paymentPayload, req, { nowSec } = {}) {
+  const now = nowSec ?? Math.floor(Date.now() / 1000);
+  const invalid = (reason) => ({ isValid: false, invalidReason: reason });
+
+  const inner = paymentPayload.payload;
+  const auth = inner && inner.authorization;
+  if (!inner || typeof inner.signature !== "string" || !auth) {
+    return invalid("paymentPayload is missing signature/authorization");
   }
 
   for (const field of ["from", "to", "value", "validAfter", "validBefore", "nonce"]) {
@@ -66,12 +136,7 @@ export async function verifyPaymentPayload(paymentPayload, paymentRequirements, 
       `authorization payee ${auth.to} does not match required payTo ${req.payTo}`
     );
   }
-  let chainId;
-  try {
-    chainId = chainIdFromNetwork(req.network);
-  } catch {
-    return invalid(`mock facilitator only verifies EVM payments, got network "${req.network}"`);
-  }
+  const chainId = chainIdFromNetwork(req.network);
   if (chainIdFromNetwork(paymentPayload.network) !== chainId) {
     return invalid("payment network does not match the offered requirement");
   }
@@ -183,9 +248,20 @@ export async function startMockFacilitator({ port = 0, nowSec, alwaysReject = fa
       }
 
       // /settle — mock only: verify, then fabricate a receipt. Nothing
-      // on any chain corresponds to this transaction hash.
+      // on any chain corresponds to the EVM transaction hash; Solana
+      // receipts echo the payment transaction's real signature, which
+      // still represents nothing until a facilitator broadcasts it.
       if (!verdict.isValid) {
         return sendJson(res, 200, { success: false, errorReason: verdict.invalidReason });
+      }
+      if (verdict.solana) {
+        return sendJson(res, 200, {
+          success: true,
+          transaction: verdict.signature,
+          network: body.paymentPayload.network,
+          payer: verdict.payer,
+          mock: true,
+        });
       }
       const auth = body.paymentPayload.payload.authorization;
       return sendJson(res, 200, {
