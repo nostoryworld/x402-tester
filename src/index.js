@@ -22,6 +22,11 @@ import {
 } from "./endtoend.js";
 import { startMockFacilitator } from "./mockFacilitator.js";
 import { startMockEndpoint } from "./endtoend.js";
+import {
+  renderReport,
+  payJsonReport,
+  solanaPayJsonReport,
+} from "./output.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -34,6 +39,7 @@ if ((cmd === "e2e" || cmd === "mock") && url && url.startsWith("-")) {
 }
 
 let method = "GET";
+let json = false;
 let key = process.env.X402_TEST_KEY || null;
 let solanaKey = process.env.X402_SOLANA_TEST_KEY || null;
 let mockPort = 4021;
@@ -67,6 +73,13 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--decimals" && flags[i + 1]) decimals = Number(flags[i + 1]);
   const d = flags[i].match(/^--decimals=(\d+)$/);
   if (d) decimals = Number(d[1]);
+  // `--json` switches report commands (check, pay, e2e, facilitator,
+  // x402scan) to machine-readable JSON output instead of human text
+  if (flags[i] === "--json") json = true;
+}
+
+function emit(report, formatFn) {
+  console.log(renderReport(report, formatFn, { json }));
 }
 
 function formatPayReport(signed) {
@@ -119,12 +132,12 @@ function usage() {
   console.log(`x402-tester — dev toolkit for x402 payment endpoints
 
 Usage:
-  x402-tester check <url> [--method <METHOD>]
-  x402-tester pay <url> [--method <METHOD>] [--key <0x...>]
-  x402-tester e2e [--key <0x...>]
+  x402-tester check <url> [--method <METHOD>] [--json]
+  x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json]
+  x402-tester e2e [--key <0x...>] [--json]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
-  x402-tester facilitator <facilitator-url>
-  x402-tester x402scan <url>
+  x402-tester facilitator <facilitator-url> [--json]
+  x402-tester x402scan <url> [--json]
 
 Options:
   --method, -m   HTTP method for the handshake probe (default: GET).
@@ -146,6 +159,10 @@ Options:
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
+  --json         Machine-readable output: print the report object as
+                 JSON instead of human-readable text. Works with check,
+                 pay, e2e, facilitator and x402scan (not mock, which
+                 runs an interactive server).
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
@@ -169,6 +186,7 @@ Commands:
 
 Examples:
   x402-tester check https://example.com/paid-api
+  x402-tester check https://example.com/paid-api --json | jq .price
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
   x402-tester pay https://example.com/solana-api --blockhash <hash>
@@ -209,7 +227,7 @@ async function runPay(targetUrl) {
   }
   try {
     const signed = await signPayment(requirement, signingKey);
-    console.log(formatPayReport(signed));
+    emit(payJsonReport(url, method, signed), () => formatPayReport(signed));
   } catch (err) {
     console.error(`cannot sign: ${err.message}`);
     process.exitCode = 1;
@@ -242,7 +260,10 @@ async function runSolanaPay(requirement) {
       decimals,
       rpcUrl: rpcUrl === undefined ? defaultRpcForNetwork(requirement.network) : rpcUrl,
     });
-    console.log(formatSolanaPayReport(signed, requirement));
+    emit(
+      solanaPayJsonReport(url, method, requirement, signed),
+      () => formatSolanaPayReport(signed, requirement)
+    );
   } catch (err) {
     console.error(`cannot sign: ${err.message}`);
     process.exitCode = 1;
@@ -257,7 +278,7 @@ async function runE2E() {  const ephemeral = !key;
     );
   }
   const report = await runPaidEndToEnd({ privateKey: signingKey });
-  console.log(formatEndToEndReport(report));
+  emit(report, formatEndToEndReport);
   process.exitCode = report.ok ? 0 : 1;
 }
 
@@ -281,7 +302,7 @@ async function runMock() {
 
 if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method });
-  console.log(formatReport(report));
+  emit(report, formatReport);
   process.exitCode = report.ok ? 0 : 1;
 } else if (cmd === "pay" && url) {
   await runPay(url);
@@ -291,11 +312,11 @@ if (cmd === "check" && url) {
   await runMock();
 } else if (cmd === "facilitator" && url) {
   const report = await checkFacilitator(url);
-  console.log(formatFacilitatorReport(report));
+  emit(report, formatFacilitatorReport);
   process.exitCode = report.reachable ? 0 : 1;
 } else if (cmd === "x402scan" && url) {
   const report = await checkX402scan(url);
-  console.log(formatX402scanReport(report));
+  emit(report, formatX402scanReport);
   process.exitCode = report.listed ? 0 : 1;
 } else {
   usage();
