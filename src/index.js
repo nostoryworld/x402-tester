@@ -40,6 +40,7 @@ if ((cmd === "e2e" || cmd === "mock") && url && url.startsWith("-")) {
 
 let method = "GET";
 let json = false;
+let reportFormat = null; // --report <fmt>; only "md" is supported for now
 let key = process.env.X402_TEST_KEY || null;
 let solanaKey = process.env.X402_SOLANA_TEST_KEY || null;
 let mockPort = 4021;
@@ -76,10 +77,32 @@ for (let i = 0; i < flags.length; i++) {
   // `--json` switches report commands (check, pay, e2e, facilitator,
   // x402scan) to machine-readable JSON output instead of human text
   if (flags[i] === "--json") json = true;
+  // `--report md` renders the same reports as Markdown instead of
+  // human text; `--report=<fmt>` form also works
+  if (flags[i] === "--report" && flags[i + 1]) reportFormat = flags[i + 1];
+  const rf = flags[i].match(/^--report=(.+)$/);
+  if (rf) reportFormat = rf[1];
 }
 
-function emit(report, formatFn) {
-  console.log(renderReport(report, formatFn, { json }));
+// `--report` only knows "md" so far, and it conflicts with `--json` —
+// fail on bad flags before any command runs, not mid-report.
+if (reportFormat !== null && reportFormat !== "md") {
+  console.error(`error: unknown --report format '${reportFormat}' (supported: md)`);
+  process.exit(1);
+}
+if (json && reportFormat === "md") {
+  console.error("error: --json and --report md cannot be combined");
+  process.exit(1);
+}
+
+function emit(report, formatFn, title) {
+  console.log(
+    renderReport(report, formatFn, {
+      json,
+      markdown: reportFormat === "md",
+      title,
+    })
+  );
 }
 
 function formatPayReport(signed) {
@@ -132,12 +155,12 @@ function usage() {
   console.log(`x402-tester — dev toolkit for x402 payment endpoints
 
 Usage:
-  x402-tester check <url> [--method <METHOD>] [--json]
-  x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json]
-  x402-tester e2e [--key <0x...>] [--json]
+  x402-tester check <url> [--method <METHOD>] [--json] [--report md]
+  x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
+  x402-tester e2e [--key <0x...>] [--json] [--report md]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
-  x402-tester facilitator <facilitator-url> [--json]
-  x402-tester x402scan <url> [--json]
+  x402-tester facilitator <facilitator-url> [--json] [--report md]
+  x402-tester x402scan <url> [--json] [--report md]
 
 Options:
   --method, -m   HTTP method for the handshake probe (default: GET).
@@ -163,6 +186,9 @@ Options:
                  JSON instead of human-readable text. Works with check,
                  pay, e2e, facilitator and x402scan (not mock, which
                  runs an interactive server).
+  --report       Report format: --report md renders the report as
+                 Markdown instead of human-readable text (same commands
+                 as --json; cannot be combined with --json).
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
@@ -187,6 +213,7 @@ Commands:
 Examples:
   x402-tester check https://example.com/paid-api
   x402-tester check https://example.com/paid-api --json | jq .price
+  x402-tester check https://example.com/paid-api --report md > report.md
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
   x402-tester pay https://example.com/solana-api --blockhash <hash>
@@ -227,7 +254,7 @@ async function runPay(targetUrl) {
   }
   try {
     const signed = await signPayment(requirement, signingKey);
-    emit(payJsonReport(url, method, signed), () => formatPayReport(signed));
+    emit(payJsonReport(url, method, signed), () => formatPayReport(signed), "Payment");
   } catch (err) {
     console.error(`cannot sign: ${err.message}`);
     process.exitCode = 1;
@@ -262,7 +289,8 @@ async function runSolanaPay(requirement) {
     });
     emit(
       solanaPayJsonReport(url, method, requirement, signed),
-      () => formatSolanaPayReport(signed, requirement)
+      () => formatSolanaPayReport(signed, requirement),
+      "Payment"
     );
   } catch (err) {
     console.error(`cannot sign: ${err.message}`);
@@ -278,7 +306,7 @@ async function runE2E() {  const ephemeral = !key;
     );
   }
   const report = await runPaidEndToEnd({ privateKey: signingKey });
-  emit(report, formatEndToEndReport);
+  emit(report, formatEndToEndReport, "Paid end-to-end test");
   process.exitCode = report.ok ? 0 : 1;
 }
 
@@ -302,7 +330,7 @@ async function runMock() {
 
 if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method });
-  emit(report, formatReport);
+  emit(report, formatReport, "Handshake check");
   process.exitCode = report.ok ? 0 : 1;
 } else if (cmd === "pay" && url) {
   await runPay(url);
@@ -312,11 +340,11 @@ if (cmd === "check" && url) {
   await runMock();
 } else if (cmd === "facilitator" && url) {
   const report = await checkFacilitator(url);
-  emit(report, formatFacilitatorReport);
+  emit(report, formatFacilitatorReport, "Facilitator check");
   process.exitCode = report.reachable ? 0 : 1;
 } else if (cmd === "x402scan" && url) {
   const report = await checkX402scan(url);
-  emit(report, formatX402scanReport);
+  emit(report, formatX402scanReport, "Discovery check");
   process.exitCode = report.listed ? 0 : 1;
 } else {
   usage();
