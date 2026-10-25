@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { readFile } from "node:fs/promises";
 import { checkHandshake, formatReport } from "./handshake.js";
+import { parseBatchFile, runBatch, formatBatchReport } from "./batch.js";
 import { checkFacilitator, formatFacilitatorReport } from "./facilitator.js";
 import { checkX402scan, formatX402scanReport } from "./x402scan.js";
 import {
@@ -156,6 +158,7 @@ function usage() {
 
 Usage:
   x402-tester check <url> [--method <METHOD>] [--json] [--report md]
+  x402-tester batch <file> [--method <METHOD>] [--json] [--report md]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
   x402-tester e2e [--key <0x...>] [--json] [--report md]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
@@ -184,7 +187,7 @@ Options:
                  Port for the mock paid endpoint (default: 4022).
   --json         Machine-readable output: print the report object as
                  JSON instead of human-readable text. Works with check,
-                 pay, e2e, facilitator and x402scan (not mock, which
+                 batch, pay, e2e, facilitator and x402scan (not mock, which
                  runs an interactive server).
   --report       Report format: --report md renders the report as
                  Markdown instead of human-readable text (same commands
@@ -192,6 +195,11 @@ Options:
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
+  batch          Check every endpoint listed in a file, one per line
+                 (blank lines and # comments ignored; a line may carry
+                 its own method, e.g. "POST https://…"). Exit 0 only
+                 when every entry passes; unparseable lines count as
+                 failures, not silent skips.
   pay            Sign an x402 payment payload for an endpoint: EVM
                  exact-scheme requirements via EIP-712, Solana
                  exact-scheme requirements (e.g. solana:devnet) via a
@@ -212,6 +220,7 @@ Commands:
 
 Examples:
   x402-tester check https://example.com/paid-api
+  x402-tester batch endpoints.txt --json | jq .failed
   x402-tester check https://example.com/paid-api --json | jq .price
   x402-tester check https://example.com/paid-api --report md > report.md
   x402-tester check https://example.com/rugcheck --method POST
@@ -310,6 +319,26 @@ async function runE2E() {  const ephemeral = !key;
   process.exitCode = report.ok ? 0 : 1;
 }
 
+async function runBatchCmd(file) {
+  let content;
+  try {
+    content = await readFile(file, "utf8");
+  } catch (err) {
+    console.error(`cannot read batch file '${file}': ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  const parsed = parseBatchFile(content, { defaultMethod: method });
+  if (parsed.entries.length === 0 && parsed.invalid.length === 0) {
+    console.error(`no endpoints listed in '${file}'`);
+    process.exitCode = 1;
+    return;
+  }
+  const report = await runBatch(parsed);
+  emit(report, formatBatchReport, "Batch handshake check");
+  process.exitCode = report.ok ? 0 : 1;
+}
+
 async function runMock() {
   const facilitator = await startMockFacilitator({ port: mockPort });
   const endpoint = await startMockEndpoint({
@@ -332,6 +361,8 @@ if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method });
   emit(report, formatReport, "Handshake check");
   process.exitCode = report.ok ? 0 : 1;
+} else if (cmd === "batch" && url) {
+  await runBatchCmd(url);
 } else if (cmd === "pay" && url) {
   await runPay(url);
 } else if (cmd === "e2e" && !url) {

@@ -13,7 +13,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 8** — Solana payment flow support on devnet
 - [x] **Day 9** — JSON report output (`--json` flag)
 - [x] **Day 10** — Markdown report export (`--report md`)
-- [ ] **Day 11** — Batch mode: check many endpoints listed in a file
+- [x] **Day 11** — Batch mode: check many endpoints listed in a file
 - [ ] **Day 12** — Config file support (`x402-tester.json`)
 - [ ] **Day 13** — Retry and timeout policy options (`--retries`, `--timeout`)
 - [ ] **Day 14** — Latency benchmark mode: p50/p95 over N probes
