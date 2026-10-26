@@ -54,6 +54,23 @@ price: 0.02 USDC
 
 Exit code is `0` when the handshake is valid, `1` otherwise — so it drops straight into CI.
 
+## Config file
+
+Drop an `x402-tester.json` in your project root (or any parent directory — it's discovered upward) and stop repeating flags:
+
+```json
+{
+  "method": "POST",
+  "json": true,
+  "endpoints": [
+    "https://example.com/paid-api",
+    "POST https://example.com/post-only-api"
+  ]
+}
+```
+
+Supported keys: `method`, `json`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `endpoints`. A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
+
 ## What it checks
 
 - Endpoint answers unpaid requests with HTTP 402 (not 200, not a redirect)
