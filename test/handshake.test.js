@@ -99,6 +99,64 @@ test("flags missing required fields in the payment requirement", async () => {
   }
 });
 
+test("retries a transient 503 then validates the 402", async () => {
+  let calls = 0;
+  const srv = await startServer((req, res) => {
+    calls += 1;
+    if (calls === 1) {
+      res.writeHead(503);
+      res.end("overloaded");
+      return;
+    }
+    res.writeHead(402, { "content-type": "application/json" });
+    res.end(JSON.stringify(VALID_402));
+  });
+  try {
+    const r = await checkHandshake(addr(srv), { retries: 2 });
+    assert.equal(r.ok, true);
+    assert.equal(r.attempts, 2);
+    assert.equal(calls, 2);
+    assert.match(formatReport(r), /2 attempts/);
+  } finally {
+    srv.close();
+  }
+});
+
+test("does not retry a definitive non-402 verdict", async () => {
+  let calls = 0;
+  const srv = await startServer((req, res) => {
+    calls += 1;
+    res.writeHead(200);
+    res.end("{}");
+  });
+  try {
+    const r = await checkHandshake(addr(srv), { retries: 3 });
+    assert.equal(r.ok, false);
+    assert.equal(r.attempts, 1);
+    assert.equal(calls, 1);
+  } finally {
+    srv.close();
+  }
+});
+
+test("reports the final 503 after retries are exhausted", async () => {
+  let calls = 0;
+  const srv = await startServer((req, res) => {
+    calls += 1;
+    res.writeHead(503);
+    res.end("still down");
+  });
+  try {
+    const r = await checkHandshake(addr(srv), { retries: 1 });
+    assert.equal(r.ok, false);
+    assert.equal(r.attempts, 2);
+    assert.equal(calls, 2);
+    assert.match(r.error, /got 503/);
+  } finally {
+    srv.close();
+  }
+});
+
 test("report renders a human-readable price for a known asset", async () => {
   const srv = await startServer((req, res) => {
     res.writeHead(402, { "content-type": "application/json" });

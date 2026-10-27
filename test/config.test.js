@@ -40,6 +40,14 @@ test("an empty object is a valid (empty) config", () => {
   assert.deepEqual(parseConfig({}), {});
 });
 
+test("accepts retries and timeoutMs, but not bare timeout", () => {
+  assert.deepEqual(parseConfig({ retries: 2, timeoutMs: 5000 }), {
+    retries: 2,
+    timeoutMs: 5000,
+  });
+  assert.throws(() => parseConfig({ timeout: 5000 }), /unknown key 'timeout'/);
+});
+
 test("rejects non-object top levels", () => {
   for (const raw of [null, [], "x", 42]) {
     assert.throws(() => parseConfig(raw), ConfigError);
@@ -66,6 +74,12 @@ test("rejects bad values per key", () => {
     [{ port: 70000 }, /'port'/],
     [{ port: "4021" }, /'port'/],
     [{ endpointPort: 99999 }, /'endpointPort'/],
+    [{ retries: -1 }, /'retries'/],
+    [{ retries: 11 }, /'retries'/],
+    [{ retries: 1.5 }, /'retries'/],
+    [{ timeoutMs: 0 }, /'timeoutMs'/],
+    [{ timeoutMs: 600001 }, /'timeoutMs'/],
+    [{ timeoutMs: "5000" }, /'timeoutMs'/],
     [{ endpoints: [] }, /'endpoints'/],
     [{ endpoints: "https://example.com" }, /'endpoints'/],
     [{ endpoints: ["not-a-url"] }, /not an http\(s\) URL/],

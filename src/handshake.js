@@ -16,12 +16,13 @@ import {
   validateRequirement,
 } from "./requirements.js";
 import { formatPrice } from "./price.js";
+import { fetchWithRetry, DEFAULT_TIMEOUT_MS } from "./retry.js";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
 
 export async function checkHandshake(
   url,
-  { timeoutMs = 15000, method = "GET" } = {}
+  { timeoutMs = DEFAULT_TIMEOUT_MS, retries = 0, method = "GET" } = {}
 ) {
   const startedAt = Date.now();
   const fail = (error, extra = {}) => ({
@@ -33,17 +34,27 @@ export async function checkHandshake(
   });
 
   const httpMethod = String(method || "GET").toUpperCase();
-  const init = { method: httpMethod, signal: AbortSignal.timeout(timeoutMs) };
+  const init = { method: httpMethod };
   if (METHODS_WITH_BODY.has(httpMethod)) {
     init.headers = { "content-type": "application/json" };
     init.body = "{}";
   }
 
   let res;
+  let attempts = 1;
   try {
-    res = await fetch(url, init);
+    ({ response: res, attempts } = await fetchWithRetry(url, init, {
+      retries,
+      timeoutMs,
+    }));
   } catch (err) {
-    return fail(`request failed: ${err.cause?.message || err.message}`);
+    return fail(
+      `request failed: ${err.cause?.message || err.message}` +
+        (attempts > 1 || retries > 0
+          ? ` (after ${retries + 1} attempt${retries === 0 ? "" : "s"})`
+          : ""),
+      { attempts: retries + 1 }
+    );
   }
   const latencyMs = Date.now() - startedAt;
 
@@ -51,6 +62,7 @@ export async function checkHandshake(
     return fail(`expected HTTP 402 Payment Required, got ${res.status}`, {
       status: res.status,
       method: httpMethod,
+      attempts,
     });
   }
 
@@ -60,7 +72,7 @@ export async function checkHandshake(
       `402 response has an empty body (probed with ${httpMethod}). ` +
         "Some endpoints only describe payment on a specific method — " +
         "retry with --method POST.",
-      { status: 402, method: httpMethod }
+      { status: 402, method: httpMethod, attempts }
     );
   }
 
@@ -71,6 +83,7 @@ export async function checkHandshake(
     return fail("402 response body is not valid JSON", {
       status: 402,
       method: httpMethod,
+      attempts,
     });
   }
 
@@ -78,7 +91,7 @@ export async function checkHandshake(
   try {
     parsed = normalizeResponse(body);
   } catch (err) {
-    return fail(err.message, { status: 402, method: httpMethod });
+    return fail(err.message, { status: 402, method: httpMethod, attempts });
   }
 
   const first = parsed.requirements[0];
@@ -105,6 +118,7 @@ export async function checkHandshake(
     status: 402,
     method: httpMethod,
     latencyMs,
+    attempts,
     version: parsed.version,
     error: ok ? undefined : `first payment requirement is missing: ${missing.join(", ")}`,
     requirements: first,
@@ -117,7 +131,9 @@ export async function checkHandshake(
 export function formatReport(r) {
   const lines = [
     `x402 handshake check: ${r.url}`,
-    `status: ${r.ok ? "OK" : "FAIL"} (${r.latencyMs}ms, ${r.method || "GET"})`,
+    `status: ${r.ok ? "OK" : "FAIL"} (${r.latencyMs}ms, ${r.method || "GET"}${
+      r.attempts > 1 ? `, ${r.attempts} attempts` : ""
+    })`,
   ];
   if (r.version) lines.push(`x402 version: v${r.version}`);
   if (r.error) lines.push(`error: ${r.error}`);

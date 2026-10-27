@@ -88,10 +88,19 @@ export function parseBatchFile(content, { defaultMethod = "GET" } = {}) {
  * injectable for tests). Returns a summary report: `ok` is true only
  * when every result passed, so callers can gate on it directly.
  */
-export async function runBatch(parsed, { check = checkHandshake } = {}) {
+export async function runBatch(
+  parsed,
+  { check = checkHandshake, retries = 0, timeoutMs = undefined } = {}
+) {
   const results = [];
   for (const entry of parsed.entries) {
-    results.push(await check(entry.url, { method: entry.method }));
+    results.push(
+      await check(entry.url, {
+        method: entry.method,
+        retries,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      })
+    );
   }
   for (const bad of parsed.invalid) {
     results.push({

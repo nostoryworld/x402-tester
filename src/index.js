@@ -53,6 +53,8 @@ let endpointPort = 4022;
 let rpcUrl; // undefined = the requirement's cluster RPC; --rpc overrides
 let blockhash = null; // --blockhash pins it (skips the RPC fetch)
 let decimals; // --decimals overrides the mint decimals (default: extra.decimals, then known mints, then 6)
+let retries = 0; // --retries <n>: retries after the first attempt (0 = single attempt)
+let timeoutMs = 15000; // --timeout <ms>: per-attempt timeout, in milliseconds
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
@@ -84,6 +86,15 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--decimals" && flags[i + 1]) { decimals = Number(flags[i + 1]); setFlags.add("decimals"); }
   const d = flags[i].match(/^--decimals=(\d+)$/);
   if (d) { decimals = Number(d[1]); setFlags.add("decimals"); }
+  // `--retries N` / `--retries=N`: extra attempts after the first probe,
+  // only for transient failures (transport errors, 429/502/503/504).
+  // `--timeout N` / `--timeout=N`: per-attempt timeout in milliseconds.
+  if (flags[i] === "--retries" && flags[i + 1]) { retries = Number(flags[i + 1]); setFlags.add("retries"); }
+  const rt = flags[i].match(/^--retries=(.+)$/);
+  if (rt) { retries = Number(rt[1]); setFlags.add("retries"); }
+  if (flags[i] === "--timeout" && flags[i + 1]) { timeoutMs = Number(flags[i + 1]); setFlags.add("timeoutMs"); }
+  const to = flags[i].match(/^--timeout=(.+)$/);
+  if (to) { timeoutMs = Number(to[1]); setFlags.add("timeoutMs"); }
   // `--json` switches report commands (check, pay, e2e, facilitator,
   // x402scan) to machine-readable JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
@@ -122,6 +133,20 @@ if (!setFlags.has("blockhash") && config.blockhash) blockhash = config.blockhash
 if (!setFlags.has("decimals") && config.decimals !== undefined) decimals = config.decimals;
 if (!setFlags.has("port") && config.port !== undefined) mockPort = config.port;
 if (!setFlags.has("endpointPort") && config.endpointPort !== undefined) endpointPort = config.endpointPort;
+if (!setFlags.has("retries") && config.retries !== undefined) retries = config.retries;
+if (!setFlags.has("timeoutMs") && config.timeoutMs !== undefined) timeoutMs = config.timeoutMs;
+
+// Fail on a bad retry/timeout policy before any command runs: a typo
+// here must never silently turn into an unbounded retry loop or a
+// zero-millisecond timeout.
+if (!Number.isInteger(retries) || retries < 0 || retries > 10) {
+  console.error("error: --retries must be an integer between 0 and 10");
+  process.exit(1);
+}
+if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) {
+  console.error("error: --timeout must be an integer between 1 and 600000 (milliseconds)");
+  process.exit(1);
+}
 
 // `--report` only knows "md" so far, and it conflicts with `--json` —
 // fail on bad flags before any command runs, not mid-report.
@@ -225,6 +250,13 @@ Options:
   --blockhash    Pin the Solana transaction's recent blockhash explicitly.
   --decimals     SPL mint decimals for the Solana transfer (default:
                  extra.decimals, then known mints, then 6).
+  --retries      Retries after the first probe (default: 0). Only
+                 transient failures are retried: transport errors and
+                 HTTP 429/502/503/504. A 402, 200 or other 4xx is a
+                 verdict and is never re-asked.
+  --timeout      Per-attempt timeout in milliseconds (default: 15000).
+                 Each retry gets a fresh timeout, so a slow first
+                 attempt does not eat the next attempt's budget.
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
@@ -267,8 +299,10 @@ Commands:
 Config file (x402-tester.json):
   Drop one in your project root and stop repeating flags. Any of
   method, json, report ("md"), rpc, blockhash, decimals, port,
-  endpointPort, and endpoints (a list of URLs, each optionally
-  prefixed with a method, e.g. "POST https://…") may be set.
+  endpointPort, retries, timeoutMs, and endpoints (a list of URLs,
+  each optionally prefixed with a method, e.g. "POST https://…") may
+  be set. Config uses timeoutMs (milliseconds); the CLI flag is
+  --timeout.
   A command run without a URL checks the first configured endpoint;
   batch run without a file checks all of them. Run
   'x402-tester config' to see what resolved. Precedence: flags >
@@ -290,7 +324,7 @@ Examples:
 }
 
 async function runPay(targetUrl) {
-  const handshake = await checkHandshake(targetUrl, { method });
+  const handshake = await checkHandshake(targetUrl, { method, retries, timeoutMs });
   if (!handshake.ok || !handshake.requirements) {
     console.error(`cannot sign: handshake failed — ${handshake.error}`);
     process.exitCode = 1;
@@ -381,7 +415,7 @@ async function runBatchFromEntries(entries, invalid = []) {
     process.exitCode = 1;
     return;
   }
-  const report = await runBatch({ entries, invalid });
+  const report = await runBatch({ entries, invalid }, { retries, timeoutMs });
   emit(report, formatBatchReport, "Batch handshake check");
   process.exitCode = report.ok ? 0 : 1;
 }
@@ -460,6 +494,8 @@ if (cmd === "config") {
         decimals: decimals ?? null,
         port: mockPort,
         endpointPort,
+        retries,
+        timeoutMs,
         endpoints: config.endpoints ?? [],
       },
       null,
@@ -467,7 +503,7 @@ if (cmd === "config") {
     )
   );
 } else if (cmd === "check" && url) {
-  const report = await checkHandshake(url, { method });
+  const report = await checkHandshake(url, { method, retries, timeoutMs });
   emit(report, formatReport, "Handshake check");
   process.exitCode = report.ok ? 0 : 1;
 } else if (cmd === "batch") {
@@ -479,11 +515,11 @@ if (cmd === "config") {
 } else if (cmd === "mock" && !url) {
   await runMock();
 } else if (cmd === "facilitator" && url) {
-  const report = await checkFacilitator(url);
+  const report = await checkFacilitator(url, { retries, timeoutMs });
   emit(report, formatFacilitatorReport, "Facilitator check");
   process.exitCode = report.reachable ? 0 : 1;
 } else if (cmd === "x402scan" && url) {
-  const report = await checkX402scan(url);
+  const report = await checkX402scan(url, { retries, timeoutMs });
   emit(report, formatX402scanReport, "Discovery check");
   process.exitCode = report.listed ? 0 : 1;
 } else {

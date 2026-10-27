@@ -24,6 +24,8 @@
  * (x402scan unreachable or its response shape changed).
  */
 
+import { fetchWithRetry, DEFAULT_TIMEOUT_MS } from "./retry.js";
+
 const TIMEOUT_NAMES = new Set(["TimeoutError", "AbortError"]);
 
 export const X402SCAN_BASE = "https://www.x402scan.com";
@@ -74,7 +76,12 @@ export function unwrapSearchResponse(body) {
  */
 export async function checkX402scan(
   url,
-  { scanBaseUrl = X402SCAN_BASE, timeoutMs = 15000, fetchImpl = fetch } = {}
+  {
+    scanBaseUrl = X402SCAN_BASE,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    retries = 0,
+    fetchImpl = fetch,
+  } = {}
 ) {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
@@ -116,11 +123,15 @@ export async function checkX402scan(
   }
 
   let res;
+  let attempts = 1;
   try {
-    res = await fetchImpl(searchUrl, {
-      headers: { accept: "application/json", "user-agent": "x402-tester" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    ({ response: res, attempts } = await fetchWithRetry(
+      searchUrl,
+      {
+        headers: { accept: "application/json", "user-agent": "x402-tester" },
+      },
+      { retries, timeoutMs, fetchImpl }
+    ));
   } catch (err) {
     const reason = TIMEOUT_NAMES.has(err.name)
       ? `request timed out after ${timeoutMs}ms`
@@ -136,6 +147,7 @@ export async function checkX402scan(
       skipped: 0,
       error: `x402scan unreachable: ${reason}`,
       latencyMs: elapsed(),
+      attempts: retries + 1,
       diagnosis: "the x402scan search index could not be reached",
     };
   }
@@ -210,6 +222,7 @@ export async function checkX402scan(
     searched: listings.length,
     skipped,
     latencyMs: elapsed(),
+    attempts,
     diagnosis: listed
       ? `listed on x402scan (${matches.length} matching service${matches.length === 1 ? "" : "s"} for host ${hostname})`
       : `not listed on x402scan (searched ${listings.length} result${listings.length === 1 ? "" : "s"} for host ${hostname}, none matched)`,

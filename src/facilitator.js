@@ -15,6 +15,8 @@
  * unreachable.
  */
 
+import { fetchWithRetry, DEFAULT_TIMEOUT_MS } from "./retry.js";
+
 const TIMEOUT_NAMES = new Set(["TimeoutError", "AbortError"]);
 
 /**
@@ -36,7 +38,10 @@ export function facilitatorVerifyUrl(baseUrl) {
  * status; only transport failures (DNS, refused, timeout) report
  * `reachable: false`.
  */
-export async function checkFacilitator(url, { timeoutMs = 15000 } = {}) {
+export async function checkFacilitator(
+  url,
+  { timeoutMs = DEFAULT_TIMEOUT_MS, retries = 0, fetchImpl = fetch } = {}
+) {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
 
@@ -54,13 +59,17 @@ export async function checkFacilitator(url, { timeoutMs = 15000 } = {}) {
   }
 
   let res;
+  let attempts = 1;
   try {
-    res = await fetch(verifyUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    ({ response: res, attempts } = await fetchWithRetry(
+      verifyUrl,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+      { retries, timeoutMs, fetchImpl }
+    ));
   } catch (err) {
     const reason = TIMEOUT_NAMES.has(err.name)
       ? `request timed out after ${timeoutMs}ms`
@@ -71,6 +80,7 @@ export async function checkFacilitator(url, { timeoutMs = 15000 } = {}) {
       reachable: false,
       error: `facilitator unreachable: ${reason}`,
       latencyMs: elapsed(),
+      attempts: retries + 1,
     };
   }
 
@@ -91,7 +101,7 @@ export async function checkFacilitator(url, { timeoutMs = 15000 } = {}) {
       "is up but unhealthy)";
   }
 
-  return { url, verifyUrl, reachable: true, status: res.status, latencyMs, diagnosis };
+  return { url, verifyUrl, reachable: true, status: res.status, latencyMs, attempts, diagnosis };
 }
 
 export function formatFacilitatorReport(r) {

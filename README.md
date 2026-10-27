@@ -69,7 +69,7 @@ Drop an `x402-tester.json` in your project root (or any parent directory — it'
 }
 ```
 
-Supported keys: `method`, `json`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `endpoints`. A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
+Supported keys: `method`, `json`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `endpoints`. Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
 
 ## What it checks
 

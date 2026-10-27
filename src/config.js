@@ -14,6 +14,8 @@
  *     "decimals": 6,
  *     "port": 4021,
  *     "endpointPort": 4022,
+ *     "retries": 2,
+ *     "timeoutMs": 10000,
  *     "endpoints": [
  *       "https://example.com/paid-api",
  *       "POST https://example.com/post-only-api"
@@ -60,6 +62,8 @@ export const CONFIG_KEYS = [
   "decimals",
   "port",
   "endpointPort",
+  "retries",
+  "timeoutMs",
   "endpoints",
 ];
 
@@ -156,6 +160,25 @@ export function parseConfig(raw, source = null) {
   if (raw.port !== undefined) config.port = checkPort(raw.port, "port", source);
   if (raw.endpointPort !== undefined) {
     config.endpointPort = checkPort(raw.endpointPort, "endpointPort", source);
+  }
+  if (raw.retries !== undefined) {
+    if (!Number.isInteger(raw.retries) || raw.retries < 0 || raw.retries > 10) {
+      fail(source, "'retries' must be an integer between 0 and 10");
+    }
+    config.retries = raw.retries;
+  }
+  if (raw.timeoutMs !== undefined) {
+    if (
+      !Number.isInteger(raw.timeoutMs) ||
+      raw.timeoutMs < 1 ||
+      raw.timeoutMs > 600000
+    ) {
+      fail(
+        source,
+        "'timeoutMs' must be an integer between 1 and 600000 (milliseconds)"
+      );
+    }
+    config.timeoutMs = raw.timeoutMs;
   }
   if (raw.endpoints !== undefined) {
     if (!Array.isArray(raw.endpoints) || raw.endpoints.length === 0) {
