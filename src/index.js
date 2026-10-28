@@ -30,6 +30,12 @@ import {
   solanaPayJsonReport,
 } from "./output.js";
 import { resolveConfig, CONFIG_FILENAME } from "./config.js";
+import {
+  runBenchmark,
+  formatBenchmarkReport,
+  DEFAULT_PROBES,
+  MAX_PROBES,
+} from "./benchmark.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -55,6 +61,7 @@ let blockhash = null; // --blockhash pins it (skips the RPC fetch)
 let decimals; // --decimals overrides the mint decimals (default: extra.decimals, then known mints, then 6)
 let retries = 0; // --retries <n>: retries after the first attempt (0 = single attempt)
 let timeoutMs = 15000; // --timeout <ms>: per-attempt timeout, in milliseconds
+let probes = DEFAULT_PROBES; // --probes <n>: benchmark probes (default: 10)
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
@@ -95,6 +102,11 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--timeout" && flags[i + 1]) { timeoutMs = Number(flags[i + 1]); setFlags.add("timeoutMs"); }
   const to = flags[i].match(/^--timeout=(.+)$/);
   if (to) { timeoutMs = Number(to[1]); setFlags.add("timeoutMs"); }
+  // `--probes N` / `--probes=N`: how many sequential handshake probes
+  // the benchmark command runs (1–100; see benchmark.js).
+  if (flags[i] === "--probes" && flags[i + 1]) { probes = Number(flags[i + 1]); setFlags.add("probes"); }
+  const pr = flags[i].match(/^--probes=(.+)$/);
+  if (pr) { probes = Number(pr[1]); setFlags.add("probes"); }
   // `--json` switches report commands (check, pay, e2e, facilitator,
   // x402scan) to machine-readable JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
@@ -135,6 +147,7 @@ if (!setFlags.has("port") && config.port !== undefined) mockPort = config.port;
 if (!setFlags.has("endpointPort") && config.endpointPort !== undefined) endpointPort = config.endpointPort;
 if (!setFlags.has("retries") && config.retries !== undefined) retries = config.retries;
 if (!setFlags.has("timeoutMs") && config.timeoutMs !== undefined) timeoutMs = config.timeoutMs;
+if (!setFlags.has("probes") && config.probes !== undefined) probes = config.probes;
 
 // Fail on a bad retry/timeout policy before any command runs: a typo
 // here must never silently turn into an unbounded retry loop or a
@@ -145,6 +158,10 @@ if (!Number.isInteger(retries) || retries < 0 || retries > 10) {
 }
 if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) {
   console.error("error: --timeout must be an integer between 1 and 600000 (milliseconds)");
+  process.exit(1);
+}
+if (!Number.isInteger(probes) || probes < 1 || probes > MAX_PROBES) {
+  console.error(`error: --probes must be an integer between 1 and ${MAX_PROBES}`);
   process.exit(1);
 }
 
@@ -220,6 +237,7 @@ function usage() {
 
 Usage:
   x402-tester check <url> [--method <METHOD>] [--json] [--report md]
+  x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md]
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
   x402-tester e2e [--key <0x...>] [--json] [--report md]
@@ -257,6 +275,10 @@ Options:
   --timeout      Per-attempt timeout in milliseconds (default: 15000).
                  Each retry gets a fresh timeout, so a slow first
                  attempt does not eat the next attempt's budget.
+  --probes       Benchmark probes (default: 10, max: 100). Probes run
+                 sequentially so the numbers reflect ordinary response
+                 time, not self-inflicted load; only successful
+                 handshakes count toward p50/p95.
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
@@ -270,6 +292,10 @@ Options:
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
+  benchmark      Probe an endpoint N times (default 10) and report
+                 handshake latency: min, mean, p50, p95, max. Exit 0
+                 only when every probe succeeded; partial runs still
+                 report the stats from the probes that did succeed.
   batch          Check every endpoint listed in a file, one per line
                  (blank lines and # comments ignored; a line may carry
                  its own method, e.g. "POST https://…"). Exit 0 only
@@ -299,9 +325,9 @@ Commands:
 Config file (x402-tester.json):
   Drop one in your project root and stop repeating flags. Any of
   method, json, report ("md"), rpc, blockhash, decimals, port,
-  endpointPort, retries, timeoutMs, and endpoints (a list of URLs,
-  each optionally prefixed with a method, e.g. "POST https://…") may
-  be set. Config uses timeoutMs (milliseconds); the CLI flag is
+  endpointPort, retries, timeoutMs, probes, and endpoints (a list of
+  URLs, each optionally prefixed with a method, e.g. "POST https://…")
+  may be set. Config uses timeoutMs (milliseconds); the CLI flag is
   --timeout.
   A command run without a URL checks the first configured endpoint;
   batch run without a file checks all of them. Run
@@ -468,7 +494,7 @@ async function runMock() {
 // endpoint, so a checked-in config makes `check` a zero-argument run.
 if (
   !url &&
-  (cmd === "check" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan") &&
+  (cmd === "check" || cmd === "benchmark" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan") &&
   config.endpoints &&
   config.endpoints.length > 0
 ) {
@@ -496,6 +522,7 @@ if (cmd === "config") {
         endpointPort,
         retries,
         timeoutMs,
+        probes,
         endpoints: config.endpoints ?? [],
       },
       null,
@@ -505,6 +532,10 @@ if (cmd === "config") {
 } else if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method, retries, timeoutMs });
   emit(report, formatReport, "Handshake check");
+  process.exitCode = report.ok ? 0 : 1;
+} else if (cmd === "benchmark" && url) {
+  const report = await runBenchmark(url, { probes, method, retries, timeoutMs });
+  emit(report, formatBenchmarkReport, "Latency benchmark");
   process.exitCode = report.ok ? 0 : 1;
 } else if (cmd === "batch") {
   await runBatchCmd(url);

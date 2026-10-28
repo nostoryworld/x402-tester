@@ -16,6 +16,7 @@
  *     "endpointPort": 4022,
  *     "retries": 2,
  *     "timeoutMs": 10000,
+ *     "probes": 10,
  *     "endpoints": [
  *       "https://example.com/paid-api",
  *       "POST https://example.com/post-only-api"
@@ -64,6 +65,7 @@ export const CONFIG_KEYS = [
   "endpointPort",
   "retries",
   "timeoutMs",
+  "probes",
   "endpoints",
 ];
 
@@ -179,6 +181,12 @@ export function parseConfig(raw, source = null) {
       );
     }
     config.timeoutMs = raw.timeoutMs;
+  }
+  if (raw.probes !== undefined) {
+    if (!Number.isInteger(raw.probes) || raw.probes < 1 || raw.probes > 100) {
+      fail(source, "'probes' must be an integer between 1 and 100");
+    }
+    config.probes = raw.probes;
   }
   if (raw.endpoints !== undefined) {
     if (!Array.isArray(raw.endpoints) || raw.endpoints.length === 0) {

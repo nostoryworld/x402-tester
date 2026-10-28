@@ -48,6 +48,13 @@ test("accepts retries and timeoutMs, but not bare timeout", () => {
   assert.throws(() => parseConfig({ timeout: 5000 }), /unknown key 'timeout'/);
 });
 
+test("accepts probes within 1–100 and rejects the rest", () => {
+  assert.deepEqual(parseConfig({ probes: 25 }), { probes: 25 });
+  for (const probes of [0, 101, 2.5, "10"]) {
+    assert.throws(() => parseConfig({ probes }), /probes/);
+  }
+});
+
 test("rejects non-object top levels", () => {
   for (const raw of [null, [], "x", 42]) {
     assert.throws(() => parseConfig(raw), ConfigError);
