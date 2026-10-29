@@ -40,6 +40,12 @@ x402-tester benchmark https://example.com/paid-api --probes 20
 # run the full paid flow end to end against local mock servers —
 # handshake, sign, facilitator /verify, paid request. No chain, no funds:
 x402-tester e2e
+# with --schema, the paid response is also validated against its
+# documented shape as a fifth step (a mismatch fails the run):
+x402-tester e2e --schema '{"type":"object","required":["resource"],"properties":{"resource":{"type":"string"}}}'
+# or validate a saved paid response offline (e.g. captured from a real
+# endpoint) against a schema file — exit 0 only when every field matches:
+x402-tester schema paid-response.json --schema response-schema.json
 # start a mock facilitator + mock paid endpoint on localhost for manual
 # testing (curl your own client against them); stops on Ctrl-C:
 x402-tester mock
@@ -80,6 +86,7 @@ Supported keys: `method`, `json`, `report` (`"md"`), `rpc`, `blockhash`, `decima
 - The 402 body is valid JSON with a non-empty `accepts` array (x402 v2) or `paymentRequirements` (v1)
 - The first payment requirement carries `scheme`, `network`, `payTo`, `asset`, and `amount`
 - Warns on multiple payment options and server-reported error fields
+- With `--schema`, the paid response must match its documented shape: `e2e` checks the live paid response, and `schema` checks a saved response file. Supported keywords: `type`, `required`, `properties`, `additionalProperties`, `items`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems` — failures name the exact field (`$.items[1].price`)
 
 ## Roadmap
 

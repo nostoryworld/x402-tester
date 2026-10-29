@@ -36,6 +36,11 @@ import {
   DEFAULT_PROBES,
   MAX_PROBES,
 } from "./benchmark.js";
+import {
+  validatePaidResponse,
+  assertValidSchema,
+  formatSchemaReport,
+} from "./schema.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -62,6 +67,7 @@ let decimals; // --decimals overrides the mint decimals (default: extra.decimals
 let retries = 0; // --retries <n>: retries after the first attempt (0 = single attempt)
 let timeoutMs = 15000; // --timeout <ms>: per-attempt timeout, in milliseconds
 let probes = DEFAULT_PROBES; // --probes <n>: benchmark probes (default: 10)
+let schemaArg = null; // --schema <path-or-JSON>: documented shape for a paid response
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
@@ -107,8 +113,16 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--probes" && flags[i + 1]) { probes = Number(flags[i + 1]); setFlags.add("probes"); }
   const pr = flags[i].match(/^--probes=(.+)$/);
   if (pr) { probes = Number(pr[1]); setFlags.add("probes"); }
-  // `--json` switches report commands (check, pay, e2e, facilitator,
-  // x402scan) to machine-readable JSON output instead of human text
+  // `--schema <path-or-JSON>` / `--schema=<...>`: the documented shape
+  // a paid response must match. A path to a JSON schema file, or the
+  // schema itself as inline JSON. Used by `e2e` (validates the live
+  // paid response) and `schema` (validates a saved response file).
+  if (flags[i] === "--schema" && flags[i + 1]) { schemaArg = flags[i + 1]; setFlags.add("schema"); }
+  const sc = flags[i].match(/^--schema=(.+)$/);
+  if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
+  // `--json` switches report commands (check, batch, pay, e2e,
+  // benchmark, facilitator, x402scan, schema) to machine-readable
+  // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
   // `--report md` renders the same reports as Markdown instead of
   // human text; `--report=<fmt>` form also works
@@ -186,6 +200,34 @@ function emit(report, formatFn, title) {
   );
 }
 
+/**
+ * Resolve a --schema argument: a path to a JSON schema file if it
+ * reads as one, otherwise the schema itself as inline JSON. A file
+ * that exists but is not valid JSON is an error, not a fallback —
+ * silently reinterpreting a broken file as inline JSON would hide
+ * the real problem.
+ */
+async function loadSchemaArg(arg) {
+  try {
+    const text = await readFile(arg, "utf8");
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`schema file '${arg}' is not valid JSON`);
+    }
+  } catch (err) {
+    if (err.message.startsWith("schema file")) throw err;
+    try {
+      return JSON.parse(arg);
+    } catch {
+      throw new Error(
+        `--schema must be a path to a JSON schema file or inline JSON ` +
+          `(could not read '${arg}' as a file or parse it as JSON)`
+      );
+    }
+  }
+}
+
 function formatPayReport(signed) {
   const a = signed.payload.payload.authorization;
   return [
@@ -240,7 +282,8 @@ Usage:
   x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md]
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
-  x402-tester e2e [--key <0x...>] [--json] [--report md]
+  x402-tester e2e [--key <0x...>] [--schema <file-or-JSON>] [--json] [--report md]
+  x402-tester schema <response.json> --schema <schema-file-or-JSON> [--json] [--report md]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
   x402-tester facilitator <facilitator-url> [--json] [--report md]
   x402-tester x402scan <url> [--json] [--report md]
@@ -279,6 +322,15 @@ Options:
                  sequentially so the numbers reflect ordinary response
                  time, not self-inflicted load; only successful
                  handshakes count toward p50/p95.
+  --schema       Documented shape a paid response must match: a path
+                 to a JSON schema file, or the schema as inline JSON.
+                 With e2e it validates the live paid response as an
+                 extra step; with schema it validates a saved response
+                 file. Supported keywords: type, required, properties,
+                 additionalProperties, items, enum, const, minimum,
+                 maximum, minLength, maxLength, pattern, minItems,
+                 maxItems. A malformed schema fails before any check
+                 runs, so a typo never reads as a pass.
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
@@ -310,6 +362,11 @@ Commands:
   e2e            Run the full paid flow against local mock servers —
                  handshake, sign, facilitator /verify, paid request —
                  with a throwaway test key. No chain, no funds.
+                 With --schema, the paid response is also validated
+                 against its documented shape as a fifth step.
+  schema         Validate a saved paid response (JSON file) against its
+                 documented shape (--schema). Exit 0 only when every
+                 field matches — for CI on captured real responses.
   mock           Start a mock facilitator + mock paid endpoint on
                  localhost for manual testing (curl your own client
                  against them); stops on Ctrl-C.
@@ -430,9 +487,59 @@ async function runE2E() {  const ephemeral = !key;
       "using a fresh throwaway test key (no funds, local only) — pass --key to use your own test key."
     );
   }
-  const report = await runPaidEndToEnd({ privateKey: signingKey });
+  // A bad schema fails before any mock server starts: a typo in the
+  // documented shape must never read as a passing check.
+  let expectedSchema;
+  if (schemaArg) {
+    try {
+      expectedSchema = await loadSchemaArg(schemaArg);
+      assertValidSchema(expectedSchema);
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  const report = await runPaidEndToEnd({ privateKey: signingKey, expectedSchema });
   emit(report, formatEndToEndReport, "Paid end-to-end test");
   process.exitCode = report.ok ? 0 : 1;
+}
+
+// Validate a saved paid response (e.g. captured from a real endpoint)
+// against its documented shape, offline. Exit 0 only when it matches.
+async function runSchemaCmd(file) {
+  if (!schemaArg) {
+    console.error("schema needs --schema <schema-file-or-JSON>");
+    process.exitCode = 1;
+    return;
+  }
+  let body;
+  try {
+    body = JSON.parse(await readFile(file, "utf8"));
+  } catch (err) {
+    console.error(`cannot read response file '${file}': ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  let schema;
+  try {
+    schema = await loadSchemaArg(schemaArg);
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  let validation;
+  try {
+    validation = validatePaidResponse(body, schema);
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  const report = { file, ok: validation.ok, errors: validation.errors };
+  emit(report, () => formatSchemaReport(validation), "Paid response schema check");
+  process.exitCode = validation.ok ? 0 : 1;
 }
 
 async function runBatchFromEntries(entries, invalid = []) {
@@ -543,6 +650,8 @@ if (cmd === "config") {
   await runPay(url);
 } else if (cmd === "e2e" && !url) {
   await runE2E();
+} else if (cmd === "schema" && url) {
+  await runSchemaCmd(url);
 } else if (cmd === "mock" && !url) {
   await runMock();
 } else if (cmd === "facilitator" && url) {

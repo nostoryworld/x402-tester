@@ -17,7 +17,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 12** — Config file support (`x402-tester.json`)
 - [x] **Day 13** — Retry and timeout policy options (`--retries`, `--timeout`)
 - [x] **Day 14** — Latency benchmark mode: p50/p95 over N probes
-- [ ] **Day 15** — Paid-response schema validation: does the paid response match the documented shape?
+- [x] **Day 15** — Paid-response schema validation: does the paid response match the documented shape?
 - [ ] **Day 16** — CDP Bazaar discovery check
 - [ ] **Day 17** — Price sanity checks: flag dust-level or whale-level mispricing
 - [ ] **Day 18** — CI mode: strict exit codes plus GitHub Actions annotations

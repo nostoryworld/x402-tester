@@ -15,6 +15,7 @@ import { createServer } from "node:http";
 import { signPayment, generateTestKey } from "./pay.js";
 import { normalizeRequirement } from "./requirements.js";
 import { startMockFacilitator } from "./mockFacilitator.js";
+import { validatePaidResponse } from "./schema.js";
 
 /**
  * The canonical test payment requirement: a v2 `exact` EVM entry for a
@@ -145,6 +146,7 @@ export async function probePaidFlow({
   privateKey,
   nowSec,
   timeoutMs = 15000,
+  expectedSchema,
 }) {
   const steps = [];
   const step = (name, ok, detail) => {
@@ -222,6 +224,7 @@ export async function probePaidFlow({
 
   // 4. paid request — replay the request with the X-PAYMENT header
   let resource = null;
+  let paidBody = null;
   if (signed) {
     try {
       const { res, body } = await fetchJson(endpointUrl, {
@@ -229,6 +232,7 @@ export async function probePaidFlow({
       });
       if (res.status === 200 && body && body.resource) {
         resource = body.resource;
+        paidBody = body;
         step("paid request", true, `HTTP 200 — resource received: "${body.resource.slice(0, 60)}…"`);
       } else {
         step(
@@ -244,7 +248,35 @@ export async function probePaidFlow({
     step("paid request", false, "skipped — nothing was signed");
   }
 
-  return { ok: steps.every((s) => s.ok), steps, resource };
+  // 5. schema — only when the caller supplied a documented shape AND
+  // there is a paid response to check. A failed paid request already
+  // fails the run; inventing a schema verdict without a response
+  // would double-count that failure.
+  let schema = null;
+  if (expectedSchema && paidBody) {
+    try {
+      schema = validatePaidResponse(paidBody, expectedSchema);
+      step(
+        "schema",
+        schema.ok,
+        schema.ok
+          ? "paid response matches the documented shape"
+          : `paid response does not match the documented shape: ${schema.errors
+              .map((e) => `${e.path}: ${e.message}`)
+              .join("; ")}`
+      );
+    } catch (err) {
+      schema = { ok: false, errors: [{ path: "$schema", message: err.message }] };
+      step("schema", false, `invalid schema: ${err.message}`);
+    }
+  }
+
+  return {
+    ok: steps.every((s) => s.ok),
+    steps,
+    resource,
+    ...(schema ? { schema } : {}),
+  };
 }
 
 /**
@@ -257,6 +289,7 @@ export async function runPaidEndToEnd({
   privateKey,
   nowSec,
   timeoutMs,
+  expectedSchema,
 } = {}) {
   const raw = rawRequirement ?? defaultTestRequirement();
   const requirement = normalizeRequirement(raw, 2);
@@ -275,6 +308,7 @@ export async function runPaidEndToEnd({
       privateKey: key,
       nowSec,
       timeoutMs,
+      expectedSchema,
     });
     return {
       ...report,
