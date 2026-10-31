@@ -3,7 +3,7 @@
  * (`--report md`).
  *
  * Every command that prints a structured report (check, pay, e2e,
- * facilitator, x402scan) can emit the same report as JSON for piping
+ * facilitator, x402scan, bazaar) can emit the same report as JSON for piping
  * into jq, CI jobs, or dashboards, or as Markdown for pasting into
  * issues, PRs, or docs. The JSON shape is exactly the report object
  * the command built — nothing is added or dropped, except that

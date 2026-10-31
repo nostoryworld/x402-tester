@@ -24,6 +24,9 @@ x402-tester check https://example.com/paid-api --method POST
 x402-tester facilitator https://facilitator.example.com
 # check whether your endpoint's host shows up in x402scan's marketplace (exit 0 = listed):
 x402-tester x402scan https://example.com/paid-api
+# check whether your endpoint's exact URL is listed in Coinbase's CDP
+# Bazaar catalog (exit 0 = listed; UNKNOWN if the catalog can't be fully scanned):
+x402-tester bazaar https://example.com/paid-api
 # sign an x402 payment payload for an endpoint (EVM exact-scheme via
 # EIP-712, or Solana exact-scheme via a signed SPL transfer transaction).
 # Signs locally with a throwaway test key — nothing is sent, no funds move:

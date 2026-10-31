@@ -4,6 +4,7 @@ import { checkHandshake, formatReport } from "./handshake.js";
 import { parseBatchFile, runBatch, formatBatchReport } from "./batch.js";
 import { checkFacilitator, formatFacilitatorReport } from "./facilitator.js";
 import { checkX402scan, formatX402scanReport } from "./x402scan.js";
+import { checkBazaar, formatBazaarReport } from "./bazaar.js";
 import {
   signPayment,
   pickSignableRequirement,
@@ -121,7 +122,7 @@ for (let i = 0; i < flags.length; i++) {
   const sc = flags[i].match(/^--schema=(.+)$/);
   if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
   // `--json` switches report commands (check, batch, pay, e2e,
-  // benchmark, facilitator, x402scan, schema) to machine-readable
+  // benchmark, facilitator, x402scan, bazaar, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
   // `--report md` renders the same reports as Markdown instead of
@@ -287,6 +288,7 @@ Usage:
   x402-tester mock [--port <n>] [--endpoint-port <n>]
   x402-tester facilitator <facilitator-url> [--json] [--report md]
   x402-tester x402scan <url> [--json] [--report md]
+  x402-tester bazaar <url> [--json] [--report md]
   x402-tester config [--config <path>]
 
 Options:
@@ -375,6 +377,11 @@ Commands:
                  expected healthy answer).
   x402scan       Check whether an endpoint's host is listed on x402scan's
                  public marketplace (exit 0 = listed).
+  bazaar         Check whether an endpoint's exact URL is listed in
+                 Coinbase's CDP Bazaar catalog (exit 0 = listed).
+                 Pages the public list endpoint until a match is found
+                 or the catalog is exhausted; a scan cut short by the
+                 page cap reports UNKNOWN, never NOT LISTED.
   config         Print the effective configuration: the config file
                  found (if any) and the merged settings after CLI flags
                  beat config values. Never prints keys.
@@ -403,6 +410,7 @@ Examples:
   x402-tester mock
   x402-tester facilitator https://facilitator.example.com
   x402-tester x402scan https://example.com/paid-api
+  x402-tester bazaar https://example.com/paid-api
 `);
 }
 
@@ -601,7 +609,7 @@ async function runMock() {
 // endpoint, so a checked-in config makes `check` a zero-argument run.
 if (
   !url &&
-  (cmd === "check" || cmd === "benchmark" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan") &&
+  (cmd === "check" || cmd === "benchmark" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan" || cmd === "bazaar") &&
   config.endpoints &&
   config.endpoints.length > 0
 ) {
@@ -661,6 +669,10 @@ if (cmd === "config") {
 } else if (cmd === "x402scan" && url) {
   const report = await checkX402scan(url, { retries, timeoutMs });
   emit(report, formatX402scanReport, "Discovery check");
+  process.exitCode = report.listed ? 0 : 1;
+} else if (cmd === "bazaar" && url) {
+  const report = await checkBazaar(url, { retries, timeoutMs });
+  emit(report, formatBazaarReport, "Discovery check");
   process.exitCode = report.listed ? 0 : 1;
 } else {
   usage();
