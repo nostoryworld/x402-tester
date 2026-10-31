@@ -18,6 +18,9 @@ node src/index.js check <url>
 
 ```sh
 x402-tester check https://example.com/paid-api
+# every check also runs price sanity: dust (< 0.001 token units) or
+# whale (> 1,000,000 token units) prices are flagged as warnings in the
+# report (and in --json as priceSanity) without failing the check.
 # some endpoints are POST-only — probe them with a different method:
 x402-tester check https://example.com/paid-api --method POST
 # probe the facilitator behind the handshake (any answer, even a 4xx, means it's alive):

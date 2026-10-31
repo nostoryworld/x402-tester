@@ -16,6 +16,7 @@ import {
   validateRequirement,
 } from "./requirements.js";
 import { formatPrice } from "./price.js";
+import { checkPriceSanity, formatPriceSanityLines } from "./price-sanity.js";
 import { fetchWithRetry, DEFAULT_TIMEOUT_MS } from "./retry.js";
 
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
@@ -112,6 +113,11 @@ export async function checkHandshake(
     );
   }
 
+  const priceSanity = checkPriceSanity(parsed.requirements);
+  for (const line of formatPriceSanityLines(priceSanity)) {
+    warnings.push(line);
+  }
+
   return {
     url,
     ok,
@@ -124,6 +130,7 @@ export async function checkHandshake(
     requirements: first,
     price: formatPrice(first),
     options: parsed.requirements.length,
+    priceSanity,
     warnings,
   };
 }

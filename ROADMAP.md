@@ -19,7 +19,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 14** — Latency benchmark mode: p50/p95 over N probes
 - [x] **Day 15** — Paid-response schema validation: does the paid response match the documented shape?
 - [x] **Day 16** — CDP Bazaar discovery check
-- [ ] **Day 17** — Price sanity checks: flag dust-level or whale-level mispricing
+- [x] **Day 17** — Price sanity checks: flag dust-level or whale-level mispricing
 - [ ] **Day 18** — CI mode: strict exit codes plus GitHub Actions annotations
 - [ ] **Day 19** — GitHub Action wrapper so repos can test their own x402 endpoints in CI
 - [ ] **Day 20** — Custom check plugin system (user-supplied check functions)
