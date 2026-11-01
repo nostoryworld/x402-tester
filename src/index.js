@@ -42,6 +42,7 @@ import {
   assertValidSchema,
   formatSchemaReport,
 } from "./schema.js";
+import { emitCiAnnotations, ciExitCode } from "./ci.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -69,6 +70,7 @@ let retries = 0; // --retries <n>: retries after the first attempt (0 = single a
 let timeoutMs = 15000; // --timeout <ms>: per-attempt timeout, in milliseconds
 let probes = DEFAULT_PROBES; // --probes <n>: benchmark probes (default: 10)
 let schemaArg = null; // --schema <path-or-JSON>: documented shape for a paid response
+let ci = false; // --ci: CI mode — annotations on stderr, warnings fail the run
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
@@ -125,6 +127,12 @@ for (let i = 0; i < flags.length; i++) {
   // benchmark, facilitator, x402scan, bazaar, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
+  // `--ci` enables CI mode for report commands (check, batch,
+  // benchmark, e2e, schema, facilitator, x402scan, bazaar): failures
+  // and warnings are emitted as GitHub Actions annotations on stderr
+  // (so --json stdout stays parseable), and any warning fails the run
+  // even when the check itself passed. See ci.js.
+  if (flags[i] === "--ci") { ci = true; setFlags.add("ci"); }
   // `--report md` renders the same reports as Markdown instead of
   // human text; `--report=<fmt>` form also works
   if (flags[i] === "--report" && flags[i + 1]) { reportFormat = flags[i + 1]; setFlags.add("report"); }
@@ -163,6 +171,7 @@ if (!setFlags.has("endpointPort") && config.endpointPort !== undefined) endpoint
 if (!setFlags.has("retries") && config.retries !== undefined) retries = config.retries;
 if (!setFlags.has("timeoutMs") && config.timeoutMs !== undefined) timeoutMs = config.timeoutMs;
 if (!setFlags.has("probes") && config.probes !== undefined) probes = config.probes;
+if (!setFlags.has("ci") && config.ci !== undefined) ci = config.ci;
 
 // Fail on a bad retry/timeout policy before any command runs: a typo
 // here must never silently turn into an unbounded retry loop or a
@@ -199,6 +208,19 @@ function emit(report, formatFn, title) {
       title,
     })
   );
+}
+
+/**
+ * Settle a report command's exit code. Without --ci this is the plain
+ * pass/fail verdict; with --ci the report's annotations go to stderr
+ * first and the strict code from ci.js applies, so a passing report
+ * carrying warnings still fails the run. `passed` is the command's own
+ * verdict for the non-CI path; the CI path re-derives it from the
+ * report so the two can never disagree.
+ */
+function settle(report, passed, command) {
+  if (ci) emitCiAnnotations(report, { command });
+  process.exitCode = ci ? ciExitCode(report, { ci: true }) : (passed ? 0 : 1);
 }
 
 /**
@@ -343,6 +365,13 @@ Options:
   --report       Report format: --report md renders the report as
                  Markdown instead of human-readable text (same commands
                  as --json; cannot be combined with --json).
+  --ci           CI mode for report commands (check, batch, benchmark,
+                 e2e, schema, facilitator, x402scan, bazaar): failures
+                 and warnings are emitted as GitHub Actions annotations
+                 (::error:: / ::warning::) on stderr, so --json stdout
+                 stays parseable — and any warning fails the run even
+                 when the check itself passed (strict exit codes).
+                 Also settable as "ci": true in x402-tester.json.
 
 Commands:
   check          Validate the 402 handshake of a paid endpoint.
@@ -388,7 +417,7 @@ Commands:
 
 Config file (x402-tester.json):
   Drop one in your project root and stop repeating flags. Any of
-  method, json, report ("md"), rpc, blockhash, decimals, port,
+  method, json, ci, report ("md"), rpc, blockhash, decimals, port,
   endpointPort, retries, timeoutMs, probes, and endpoints (a list of
   URLs, each optionally prefixed with a method, e.g. "POST https://…")
   may be set. Config uses timeoutMs (milliseconds); the CLI flag is
@@ -403,6 +432,7 @@ Examples:
   x402-tester batch endpoints.txt --json | jq .failed
   x402-tester check https://example.com/paid-api --json | jq .price
   x402-tester check https://example.com/paid-api --report md > report.md
+  x402-tester check https://example.com/paid-api --ci   # GitHub Actions annotations + strict exit codes
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
   x402-tester pay https://example.com/solana-api --blockhash <hash>
@@ -510,7 +540,7 @@ async function runE2E() {  const ephemeral = !key;
   }
   const report = await runPaidEndToEnd({ privateKey: signingKey, expectedSchema });
   emit(report, formatEndToEndReport, "Paid end-to-end test");
-  process.exitCode = report.ok ? 0 : 1;
+  settle(report, report.ok, "e2e");
 }
 
 // Validate a saved paid response (e.g. captured from a real endpoint)
@@ -547,7 +577,7 @@ async function runSchemaCmd(file) {
   }
   const report = { file, ok: validation.ok, errors: validation.errors };
   emit(report, () => formatSchemaReport(validation), "Paid response schema check");
-  process.exitCode = validation.ok ? 0 : 1;
+  settle(report, validation.ok, "schema");
 }
 
 async function runBatchFromEntries(entries, invalid = []) {
@@ -558,7 +588,7 @@ async function runBatchFromEntries(entries, invalid = []) {
   }
   const report = await runBatch({ entries, invalid }, { retries, timeoutMs });
   emit(report, formatBatchReport, "Batch handshake check");
-  process.exitCode = report.ok ? 0 : 1;
+  settle(report, report.ok, "batch");
 }
 
 async function runBatchCmd(file) {
@@ -638,6 +668,7 @@ if (cmd === "config") {
         retries,
         timeoutMs,
         probes,
+        ci,
         endpoints: config.endpoints ?? [],
       },
       null,
@@ -647,11 +678,11 @@ if (cmd === "config") {
 } else if (cmd === "check" && url) {
   const report = await checkHandshake(url, { method, retries, timeoutMs });
   emit(report, formatReport, "Handshake check");
-  process.exitCode = report.ok ? 0 : 1;
+  settle(report, report.ok, "check");
 } else if (cmd === "benchmark" && url) {
   const report = await runBenchmark(url, { probes, method, retries, timeoutMs });
   emit(report, formatBenchmarkReport, "Latency benchmark");
-  process.exitCode = report.ok ? 0 : 1;
+  settle(report, report.ok, "benchmark");
 } else if (cmd === "batch") {
   await runBatchCmd(url);
 } else if (cmd === "pay" && url) {
@@ -665,15 +696,15 @@ if (cmd === "config") {
 } else if (cmd === "facilitator" && url) {
   const report = await checkFacilitator(url, { retries, timeoutMs });
   emit(report, formatFacilitatorReport, "Facilitator check");
-  process.exitCode = report.reachable ? 0 : 1;
+  settle(report, report.reachable, "facilitator");
 } else if (cmd === "x402scan" && url) {
   const report = await checkX402scan(url, { retries, timeoutMs });
   emit(report, formatX402scanReport, "Discovery check");
-  process.exitCode = report.listed ? 0 : 1;
+  settle(report, report.listed, "x402scan");
 } else if (cmd === "bazaar" && url) {
   const report = await checkBazaar(url, { retries, timeoutMs });
   emit(report, formatBazaarReport, "Discovery check");
-  process.exitCode = report.listed ? 0 : 1;
+  settle(report, report.listed, "bazaar");
 } else {
   usage();
   process.exitCode = cmd ? 1 : 0;

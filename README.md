@@ -69,6 +69,23 @@ price: 0.02 USDC
 
 Exit code is `0` when the handshake is valid, `1` otherwise — so it drops straight into CI.
 
+## CI mode
+
+Add `--ci` to any report command (`check`, `batch`, `benchmark`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
+
+```sh
+x402-tester check https://example.com/paid-api --ci
+```
+
+- Failures and warnings are emitted as GitHub Actions annotations (`::error::` / `::warning::`) on stderr, so they show up on the run — and `--json` output on stdout stays parseable when piped to `jq`.
+- Exit codes are strict: a passing check that carries a warning (for example a dust- or whale-priced endpoint flagged by price sanity) exits `1` instead of `0`. Without `--ci`, warnings never fail a run.
+- `ci` can also be set in `x402-tester.json` (`"ci": true`); the `--ci` flag beats the config file, as usual.
+
+```yaml
+- name: Check x402 handshake
+  run: npx x402-tester check https://example.com/paid-api --ci
+```
+
 ## Config file
 
 Drop an `x402-tester.json` in your project root (or any parent directory — it's discovered upward) and stop repeating flags:
@@ -84,7 +101,7 @@ Drop an `x402-tester.json` in your project root (or any parent directory — it'
 }
 ```
 
-Supported keys: `method`, `json`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `endpoints`. Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
+Supported keys: `method`, `json`, `ci`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `endpoints`. Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
 
 ## What it checks
 

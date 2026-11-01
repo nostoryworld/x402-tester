@@ -8,6 +8,7 @@
  *   {
  *     "method": "POST",
  *     "json": true,
+ *     "ci": true,
  *     "report": "md",
  *     "rpc": "https://api.devnet.solana.com",
  *     "blockhash": "…",
@@ -57,6 +58,7 @@ const KNOWN_METHODS = new Set([
 export const CONFIG_KEYS = [
   "method",
   "json",
+  "ci",
   "report",
   "rpc",
   "blockhash",
@@ -128,6 +130,12 @@ export function parseConfig(raw, source = null) {
       fail(source, "'json' must be true or false");
     }
     config.json = raw.json;
+  }
+  if (raw.ci !== undefined) {
+    if (typeof raw.ci !== "boolean") {
+      fail(source, "'ci' must be true or false");
+    }
+    config.ci = raw.ci;
   }
   if (raw.report !== undefined) {
     if (raw.report === "json") {
