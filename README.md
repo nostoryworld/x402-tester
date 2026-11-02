@@ -86,6 +86,38 @@ x402-tester check https://example.com/paid-api --ci
   run: npx x402-tester check https://example.com/paid-api --ci
 ```
 
+## GitHub Action
+
+Use the wrapper directly in another repo's workflow — no npm publish needed, it runs the CLI from the action's own checkout:
+
+```yaml
+- uses: nostoryworld/x402-tester@v1
+  with:
+    endpoint: https://example.com/paid-api
+```
+
+| Input | Required | Default | Meaning |
+|---|---|---|---|
+| `endpoint` | yes | — | URL of the x402 endpoint to check |
+| `method` | no | `GET` | HTTP method for the unpaid probe |
+| `args` | no | — | Extra arguments passed to `x402-tester check` (for example `--retries 2 --timeout 10000`) |
+| `fail-on-warning` | no | `true` | Fail the run when the check passes with warnings — adds `--ci` (strict exit codes + annotations) |
+| `node-version` | no | `20` | Node.js version used to run the action |
+
+The action exposes one output, `result` (`success` or `failure`), so later steps can branch on it:
+
+```yaml
+- uses: nostoryworld/x402-tester@v1
+  id: handshake
+  with:
+    endpoint: https://example.com/paid-api
+    method: POST
+- if: steps.handshake.outputs.result == 'failure'
+  run: echo "handshake gate failed"
+```
+
+Until a `v1` tag is cut, pin `@main` instead. The check itself is the same `check` command as the CLI, so a failing handshake fails the workflow step and the failure shows up as a GitHub annotation.
+
 ## Config file
 
 Drop an `x402-tester.json` in your project root (or any parent directory — it's discovered upward) and stop repeating flags:

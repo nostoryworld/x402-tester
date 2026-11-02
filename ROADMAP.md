@@ -21,7 +21,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 16** — CDP Bazaar discovery check
 - [x] **Day 17** — Price sanity checks: flag dust-level or whale-level mispricing
 - [x] **Day 18** — CI mode: strict exit codes plus GitHub Actions annotations
-- [ ] **Day 19** — GitHub Action wrapper so repos can test their own x402 endpoints in CI
+- [x] **Day 19** — GitHub Action wrapper so repos can test their own x402 endpoints in CI
 - [ ] **Day 20** — Custom check plugin system (user-supplied check functions)
 - [ ] **Day 21** — HTML report output
 - [ ] **Day 22** — Compare mode: diff the handshakes of two endpoints

@@ -1,0 +1,57 @@
+name: x402-tester
+description: Test an x402 payment endpoint's handshake in CI
+author: nostoryworld
+branding:
+  icon: zap
+  color: green
+inputs:
+  endpoint:
+    description: URL of the x402 endpoint to check
+    required: true
+  method:
+    description: HTTP method for the unpaid probe
+    required: false
+    default: GET
+  args:
+    description: Extra arguments passed to `x402-tester check` (for example `--retries 2 --timeout 10000`)
+    required: false
+    default: ""
+  fail-on-warning:
+    description: Fail the run when the check passes with warnings (dust/whale pricing and similar) — adds `--ci`
+    required: false
+    default: "true"
+  node-version:
+    description: Node.js version used to run the action
+    required: false
+    default: "20"
+outputs:
+  result:
+    description: Outcome of the handshake check step (`success` or `failure`)
+    value: ${{ steps.result.outputs.result }}
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    # The action runs the CLI straight from its own checkout, so it
+    # works before any npm publish: install the production deps here
+    # (node_modules is gitignored, never committed).
+    - name: Install x402-tester dependencies
+      shell: bash
+      run: npm ci --prefix "${{ github.action_path }}"
+    - name: Check x402 handshake
+      id: check
+      shell: bash
+      run: |
+        FLAGS=""
+        if [ "${{ inputs.fail-on-warning }}" = "true" ]; then
+          FLAGS="--ci"
+        fi
+        node "${{ github.action_path }}/src/index.js" check "${{ inputs.endpoint }}" --method "${{ inputs.method }}" $FLAGS ${{ inputs.args }}
+    - name: Report result
+      id: result
+      if: always()
+      shell: bash
+      run: echo "result=${{ steps.check.outcome }}" >> "$GITHUB_OUTPUT"
