@@ -152,5 +152,12 @@ export function formatReport(r) {
     if (q.description) lines.push(`description: ${q.description}`);
   }
   for (const w of r.warnings || []) lines.push(`warning: ${w}`);
+  for (const p of r.plugins || []) {
+    if (p.ok) {
+      lines.push(`plugin ${p.name}: PASS${p.warning ? ` (warning: ${p.warning})` : ""}`);
+    } else {
+      lines.push(`plugin ${p.name}: FAIL${p.message ? `: ${p.message}` : ""}`);
+    }
+  }
   return lines.join("\n");
 }

@@ -188,12 +188,28 @@ export function collectAnnotations(report, { command } = {}) {
     return annotations;
   }
 
-  // Single-check / facilitator / discovery reports.
-  if (!reportPassed(report)) {
+  // Plugin failures: one error per failed plugin, so the annotation
+  // names the plugin. When a plugin failure is the only failure (the
+  // handshake itself passed, so there is no error/diagnosis), it
+  // replaces the generic "check failed" line rather than doubling it.
+  const pluginFailures = Array.isArray(report.plugins)
+    ? report.plugins.filter((p) => !p.ok)
+    : [];
+  if (!reportPassed(report) && (report.error || report.diagnosis || pluginFailures.length === 0)) {
     const detail = report.error || report.diagnosis || "check failed";
     annotations.push({
       level: "error",
       message: withUrl(report.url, detail),
+      title,
+    });
+  }
+  for (const plugin of pluginFailures) {
+    annotations.push({
+      level: "error",
+      message: withUrl(
+        report.url,
+        `plugin ${plugin.name}: ${plugin.message || "check failed"}`
+      ),
       title,
     });
   }

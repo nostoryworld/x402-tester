@@ -43,6 +43,11 @@ import {
   formatSchemaReport,
 } from "./schema.js";
 import { emitCiAnnotations, ciExitCode } from "./ci.js";
+import {
+  loadPlugins,
+  runPlugins,
+  applyPluginResults,
+} from "./plugins.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -72,6 +77,7 @@ let probes = DEFAULT_PROBES; // --probes <n>: benchmark probes (default: 10)
 let schemaArg = null; // --schema <path-or-JSON>: documented shape for a paid response
 let ci = false; // --ci: CI mode — annotations on stderr, warnings fail the run
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
+let cliPluginPaths = []; // --plugin <file>, repeatable; appended after config plugins
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
 const setFlags = new Set();
@@ -143,6 +149,12 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--config" && flags[i + 1]) configPath = flags[i + 1];
   const cf = flags[i].match(/^--config=(.+)$/);
   if (cf) configPath = cf[1];
+  // `--plugin <file>` / `--plugin=<file>`, repeatable: a user-supplied
+  // check that runs after a passing handshake (see plugins.js).
+  // Config plugins run first, CLI plugins after, in listed order.
+  if (flags[i] === "--plugin" && flags[i + 1]) cliPluginPaths.push(flags[i + 1]);
+  const pl = flags[i].match(/^--plugin=(.+)$/);
+  if (pl) cliPluginPaths.push(pl[1]);
 }
 
 // Config file: explicit path must exist and parse; auto-discovery is
@@ -172,6 +184,9 @@ if (!setFlags.has("retries") && config.retries !== undefined) retries = config.r
 if (!setFlags.has("timeoutMs") && config.timeoutMs !== undefined) timeoutMs = config.timeoutMs;
 if (!setFlags.has("probes") && config.probes !== undefined) probes = config.probes;
 if (!setFlags.has("ci") && config.ci !== undefined) ci = config.ci;
+// Effective plugins: config entries first, then CLI flags, in order.
+// A path listed twice runs once (loadPlugins dedupes by resolved path).
+const pluginPaths = [...(config.plugins || []), ...cliPluginPaths];
 
 // Fail on a bad retry/timeout policy before any command runs: a typo
 // here must never silently turn into an unbounded retry loop or a
@@ -301,7 +316,7 @@ function usage() {
   console.log(`x402-tester — dev toolkit for x402 payment endpoints
 
 Usage:
-  x402-tester check <url> [--method <METHOD>] [--json] [--report md]
+  x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md]
   x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md]
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
@@ -355,6 +370,18 @@ Options:
                  maximum, minLength, maxLength, pattern, minItems,
                  maxItems. A malformed schema fails before any check
                  runs, so a typo never reads as a pass.
+  --plugin       Custom check plugin: a JS file default-exporting a
+                 function or a { name, check } object (repeatable).
+                 Runs after a passing handshake, with the handshake
+                 report, first requirement and price as context; a
+                 failing plugin fails the check, a plugin warning
+                 joins the report's warnings (and fails under --ci).
+                 A plugin that throws fails only itself, never the
+                 whole run — but a path that cannot be loaded fails
+                 before any check runs. Plugins are arbitrary code:
+                 load only files you trust. Also settable as
+                 "plugins": [...] in x402-tester.json (config entries
+                 run first, CLI --plugin entries after).
   --port         Port for the mock facilitator (default: 4021).
   --endpoint-port
                  Port for the mock paid endpoint (default: 4022).
@@ -374,7 +401,8 @@ Options:
                  Also settable as "ci": true in x402-tester.json.
 
 Commands:
-  check          Validate the 402 handshake of a paid endpoint.
+  check          Validate the 402 handshake of a paid endpoint, then
+                 run any --plugin / configured custom checks against it.
   benchmark      Probe an endpoint N times (default 10) and report
                  handshake latency: min, mean, p50, p95, max. Exit 0
                  only when every probe succeeded; partial runs still
@@ -418,8 +446,9 @@ Commands:
 Config file (x402-tester.json):
   Drop one in your project root and stop repeating flags. Any of
   method, json, ci, report ("md"), rpc, blockhash, decimals, port,
-  endpointPort, retries, timeoutMs, probes, and endpoints (a list of
-  URLs, each optionally prefixed with a method, e.g. "POST https://…")
+  endpointPort, retries, timeoutMs, probes, endpoints (a list of
+  URLs, each optionally prefixed with a method, e.g. "POST https://…"),
+  and plugins (a list of custom-check plugin file paths)
   may be set. Config uses timeoutMs (milliseconds); the CLI flag is
   --timeout.
   A command run without a URL checks the first configured endpoint;
@@ -433,6 +462,7 @@ Examples:
   x402-tester check https://example.com/paid-api --json | jq .price
   x402-tester check https://example.com/paid-api --report md > report.md
   x402-tester check https://example.com/paid-api --ci   # GitHub Actions annotations + strict exit codes
+  x402-tester check https://example.com/paid-api --plugin ./only-base.mjs
   x402-tester check https://example.com/rugcheck --method POST
   x402-tester pay https://example.com/paid-api
   x402-tester pay https://example.com/solana-api --blockhash <hash>
@@ -670,15 +700,46 @@ if (cmd === "config") {
         probes,
         ci,
         endpoints: config.endpoints ?? [],
+        plugins: pluginPaths,
       },
       null,
       2
     )
   );
 } else if (cmd === "check" && url) {
-  const report = await checkHandshake(url, { method, retries, timeoutMs });
-  emit(report, formatReport, "Handshake check");
-  settle(report, report.ok, "check");
+  // Load plugins before any network call: a bad plugin path fails
+  // fast, instead of running a handshake whose custom checks then
+  // silently never happen.
+  let plugins = [];
+  if (pluginPaths.length > 0) {
+    try {
+      plugins = await loadPlugins(pluginPaths);
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  }
+  if (process.exitCode !== 1) {
+    let report = await checkHandshake(url, { method, retries, timeoutMs });
+    if (report.ok && plugins.length > 0) {
+      const results = await runPlugins(plugins, {
+        url,
+        method,
+        handshake: report,
+        requirements: report.requirements,
+        price: report.price,
+      });
+      report = applyPluginResults(report, results);
+    } else if (!report.ok && plugins.length > 0) {
+      // Plugins check the handshake's content, so there is nothing
+      // for them to judge when the handshake itself failed.
+      console.error(
+        `skipping ${plugins.length} plugin check${plugins.length === 1 ? "" : "s"}: handshake failed`
+      );
+    }
+    emit(report, formatReport, "Handshake check");
+    settle(report, report.ok, "check");
+  }
 } else if (cmd === "benchmark" && url) {
   const report = await runBenchmark(url, { probes, method, retries, timeoutMs });
   emit(report, formatBenchmarkReport, "Latency benchmark");

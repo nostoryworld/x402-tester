@@ -69,6 +69,27 @@ price: 0.02 USDC
 
 Exit code is `0` when the handshake is valid, `1` otherwise — so it drops straight into CI.
 
+## Custom checks (plugins)
+
+Bring your own assertions to `check` with `--plugin <file>` (repeatable), or list them in `x402-tester.json` under `"plugins"` (config entries run first, CLI entries after; a file listed twice runs once). A plugin is a JS file that default-exports a function or a `{ name, check }` object; it runs only after a passing handshake, and receives the URL, method, handshake report, first payment requirement, and price:
+
+```js
+// only-base.mjs — fail any endpoint that does not settle on base
+export default {
+  name: "only-base",
+  check: ({ requirements }) =>
+    requirements.network === "base"
+      ? { ok: true }
+      : { ok: false, message: `expected base, got ${requirements.network}` },
+};
+```
+
+```sh
+x402-tester check https://example.com/paid-api --plugin ./only-base.mjs
+```
+
+A check may return nothing/`true` (pass), `false` (fail), a string (fail with that message), or a result object `{ ok, message?, warning? }` — a warning joins the report's warnings, so it fails the run under `--ci` like any built-in warning. A plugin that throws or returns a bad shape fails only itself, never the whole run; but a plugin path that cannot be loaded fails before any check runs, so a typo never silently skips your custom checks. Plugin results appear in the text report, `--json` (as `plugins`), and `--report md`, and plugin failures surface as `::error::` annotations under `--ci`. Plugins are arbitrary code run with the CLI's privileges — load only files you trust.
+
 ## CI mode
 
 Add `--ci` to any report command (`check`, `batch`, `benchmark`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
@@ -133,7 +154,7 @@ Drop an `x402-tester.json` in your project root (or any parent directory — it'
 }
 ```
 
-Supported keys: `method`, `json`, `ci`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `endpoints`. Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
+Supported keys: `method`, `json`, `ci`, `report` (`"md"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `endpoints`, `plugins` (custom-check plugin file paths, run by `check`). Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
 
 ## What it checks
 

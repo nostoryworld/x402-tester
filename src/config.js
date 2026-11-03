@@ -69,6 +69,7 @@ export const CONFIG_KEYS = [
   "timeoutMs",
   "probes",
   "endpoints",
+  "plugins",
 ];
 
 export class ConfigError extends Error {
@@ -226,6 +227,19 @@ export function parseConfig(raw, source = null) {
       }
     }
     config.endpoints = raw.endpoints.map((e) => e.trim());
+  }
+  if (raw.plugins !== undefined) {
+    if (!Array.isArray(raw.plugins)) {
+      fail(source, "'plugins' must be an array of plugin file paths");
+    }
+    for (const entry of raw.plugins) {
+      if (typeof entry !== "string" || !entry.trim()) {
+        fail(source, "'plugins' entries must be non-empty strings");
+      }
+    }
+    // An empty list is valid — it means "no plugins", same as omitting
+    // the key — so a config can mention the key without enabling any.
+    config.plugins = raw.plugins.map((e) => e.trim());
   }
   return config;
 }
