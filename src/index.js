@@ -63,7 +63,7 @@ if (url && url.startsWith("-")) {
 
 let method = "GET";
 let json = false;
-let reportFormat = null; // --report <fmt>; only "md" is supported for now
+let reportFormat = null; // --report <fmt>; "md" or "html"
 let key = process.env.X402_TEST_KEY || null;
 let solanaKey = process.env.X402_SOLANA_TEST_KEY || null;
 let mockPort = 4021;
@@ -139,8 +139,8 @@ for (let i = 0; i < flags.length; i++) {
   // (so --json stdout stays parseable), and any warning fails the run
   // even when the check itself passed. See ci.js.
   if (flags[i] === "--ci") { ci = true; setFlags.add("ci"); }
-  // `--report md` renders the same reports as Markdown instead of
-  // human text; `--report=<fmt>` form also works
+  // `--report md|html` renders the same reports as Markdown or HTML
+  // instead of human text; `--report=<fmt>` form also works
   if (flags[i] === "--report" && flags[i + 1]) { reportFormat = flags[i + 1]; setFlags.add("report"); }
   const rf = flags[i].match(/^--report=(.+)$/);
   if (rf) { reportFormat = rf[1]; setFlags.add("report"); }
@@ -204,14 +204,14 @@ if (!Number.isInteger(probes) || probes < 1 || probes > MAX_PROBES) {
   process.exit(1);
 }
 
-// `--report` only knows "md" so far, and it conflicts with `--json` —
+// `--report` knows "md" and "html", and conflicts with `--json` —
 // fail on bad flags before any command runs, not mid-report.
-if (reportFormat !== null && reportFormat !== "md") {
-  console.error(`error: unknown --report format '${reportFormat}' (supported: md)`);
+if (reportFormat !== null && reportFormat !== "md" && reportFormat !== "html") {
+  console.error(`error: unknown --report format '${reportFormat}' (supported: md, html)`);
   process.exit(1);
 }
-if (json && reportFormat === "md") {
-  console.error("error: --json and --report md cannot be combined");
+if (json && reportFormat !== null) {
+  console.error(`error: --json and --report ${reportFormat} cannot be combined`);
   process.exit(1);
 }
 
@@ -220,6 +220,7 @@ function emit(report, formatFn, title) {
     renderReport(report, formatFn, {
       json,
       markdown: reportFormat === "md",
+      html: reportFormat === "html",
       title,
     })
   );
@@ -316,16 +317,16 @@ function usage() {
   console.log(`x402-tester — dev toolkit for x402 payment endpoints
 
 Usage:
-  x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md]
-  x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md]
-  x402-tester batch <file> [--method <METHOD>] [--json] [--report md]
-  x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md]
-  x402-tester e2e [--key <0x...>] [--schema <file-or-JSON>] [--json] [--report md]
-  x402-tester schema <response.json> --schema <schema-file-or-JSON> [--json] [--report md]
+  x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md|html]
+  x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md|html]
+  x402-tester batch <file> [--method <METHOD>] [--json] [--report md|html]
+  x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md|html]
+  x402-tester e2e [--key <0x...>] [--schema <file-or-JSON>] [--json] [--report md|html]
+  x402-tester schema <response.json> --schema <schema-file-or-JSON> [--json] [--report md|html]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
-  x402-tester facilitator <facilitator-url> [--json] [--report md]
-  x402-tester x402scan <url> [--json] [--report md]
-  x402-tester bazaar <url> [--json] [--report md]
+  x402-tester facilitator <facilitator-url> [--json] [--report md|html]
+  x402-tester x402scan <url> [--json] [--report md|html]
+  x402-tester bazaar <url> [--json] [--report md|html]
   x402-tester config [--config <path>]
 
 Options:
@@ -390,7 +391,8 @@ Options:
                  batch, pay, e2e, facilitator and x402scan (not mock, which
                  runs an interactive server).
   --report       Report format: --report md renders the report as
-                 Markdown instead of human-readable text (same commands
+                 Markdown, --report html as a standalone HTML page,
+                 instead of human-readable text (same commands
                  as --json; cannot be combined with --json).
   --ci           CI mode for report commands (check, batch, benchmark,
                  e2e, schema, facilitator, x402scan, bazaar): failures

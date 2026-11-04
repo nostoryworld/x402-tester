@@ -71,7 +71,7 @@ test("rejects bad values per key", () => {
     [{ method: "" }, /'method'/],
     [{ method: "FETCH" }, /unknown HTTP method/],
     [{ json: "yes" }, /'json'/],
-    [{ report: "html" }, /'report' must be 'md'/],
+    [{ report: "pdf" }, /'report' must be 'md' or 'html'/],
     [{ report: "json" }, /"json": true/],
     [{ rpc: "" }, /'rpc'/],
     [{ blockhash: 42 }, /'blockhash'/],

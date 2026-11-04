@@ -145,8 +145,8 @@ export function parseConfig(raw, source = null) {
         `'report' does not accept 'json' — use "json": true instead`
       );
     }
-    if (raw.report !== "md") {
-      fail(source, `'report' must be 'md'`);
+    if (raw.report !== "md" && raw.report !== "html") {
+      fail(source, `'report' must be 'md' or 'html'`);
     }
     config.report = raw.report;
   }

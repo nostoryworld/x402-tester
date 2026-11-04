@@ -1,6 +1,6 @@
 /**
- * Machine-readable report output (`--json`) and Markdown export
- * (`--report md`).
+ * Machine-readable report output (`--json`) and report exports
+ * (`--report md` for Markdown, `--report html` for HTML).
  *
  * Every command that prints a structured report (check, pay, e2e,
  * facilitator, x402scan, bazaar) can emit the same report as JSON for piping
@@ -12,6 +12,7 @@
  */
 
 import { toMarkdown } from "./markdown.js";
+import { toHtml } from "./html.js";
 
 function bigIntSafe(_key, value) {
   return typeof value === "bigint" ? value.toString() : value;
@@ -19,21 +20,28 @@ function bigIntSafe(_key, value) {
 
 /**
  * Render a report as human-readable text (default), as pretty-printed
- * JSON (when `json` is true), or as Markdown (when `markdown` is
- * true). Returns the string; the caller prints it. Combining JSON and
- * Markdown output is an error — the CLI rejects it up front, and this
- * guard covers direct API use.
+ * JSON (when `json` is true), as Markdown (when `markdown` is true),
+ * or as HTML (when `html` is true). Returns the string; the caller
+ * prints it. Combining JSON with a report format is an error — the CLI
+ * rejects it up front, and this guard covers direct API use.
  */
 export function renderReport(
   report,
   formatText,
-  { json = false, markdown = false, title } = {}
+  { json = false, markdown = false, html = false, title } = {}
 ) {
   if (json && markdown) {
     throw new Error("cannot combine --json and --report md output");
   }
+  if (json && html) {
+    throw new Error("cannot combine --json and --report html output");
+  }
+  if (markdown && html) {
+    throw new Error("cannot combine --report md and --report html output");
+  }
   if (json) return JSON.stringify(report, bigIntSafe, 2);
   if (markdown) return toMarkdown(report, title);
+  if (html) return toHtml(report, title);
   return formatText(report);
 }
 
