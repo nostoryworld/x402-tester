@@ -24,7 +24,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 19** — GitHub Action wrapper so repos can test their own x402 endpoints in CI
 - [x] **Day 20** — Custom check plugin system (user-supplied check functions)
 - [x] **Day 21** — HTML report output
-- [ ] **Day 22** — Compare mode: diff the handshakes of two endpoints
+- [x] **Day 22** — Compare mode: diff the handshakes of two endpoints
 - [ ] **Day 23** — Rate-limit behavior probe (does the endpoint 429 gracefully?)
 - [ ] **Day 24** — Signed-payment replay protection check
 - [ ] **Day 25** — Example fixtures for well-known x402 endpoints

@@ -18,10 +18,10 @@
  *
  * This module is pure except for `emitCiAnnotations`, which takes an
  * injectable `write` so tests never touch the real stderr. It knows
- * every report shape the CLI produces (single check, batch, benchmark,
- * end-to-end steps, schema errors, facilitator reachability, discovery
- * listings) and derives pass/fail from the report itself, so the CLI
- * cannot accidentally report one verdict in text and another to CI.
+ * every report shape the CLI produces (single check, batch, compare,
+ * benchmark, end-to-end steps, schema errors, facilitator reachability,
+ * discovery listings) and derives pass/fail from the report itself, so
+ * the CLI cannot accidentally report one verdict in text and another to CI.
  */
 
 const LEVELS = new Set(["error", "warning", "notice"]);
@@ -92,12 +92,15 @@ export function reportPassed(report) {
 
 /**
  * True when the report carries any warning — a top-level `warnings`
- * array, or warnings inside batch results. Other report shapes have
- * no warning channel, so they never trigger strict mode.
+ * array, warnings inside batch results, or differences in a compare
+ * report (a staging/production drift is a warning, so --ci fails the
+ * run on it like any other warning). Other report shapes have no
+ * warning channel, so they never trigger strict mode.
  */
 export function hasWarnings(report) {
   if (!report || typeof report !== "object") return false;
   if (Array.isArray(report.warnings) && report.warnings.length > 0) return true;
+  if (Array.isArray(report.differences) && report.differences.length > 0) return true;
   if (Array.isArray(report.results)) {
     return report.results.some(
       (r) => Array.isArray(r.warnings) && r.warnings.length > 0
@@ -182,6 +185,36 @@ export function collectAnnotations(report, { command } = {}) {
       annotations.push({
         level: "error",
         message: withUrl(report.file, detail),
+        title,
+      });
+    }
+    return annotations;
+  }
+
+  // Compare: one error per failing side, one warning per differing
+  // payment term. A difference is a warning so --ci fails the run on
+  // staging/production drift, like any other warning. The "handshake"
+  // difference entry is the failure itself, already reported as an
+  // error above, so it is not also warned about.
+  if (Array.isArray(report.differences) && report.a && report.b) {
+    for (const [side, url] of [
+      ["a", report.urlA],
+      ["b", report.urlB],
+    ]) {
+      const sideReport = report[side];
+      if (!sideReport.ok) {
+        annotations.push({
+          level: "error",
+          message: withUrl(url, sideReport.error || "handshake failed"),
+          title,
+        });
+      }
+    }
+    for (const d of report.differences) {
+      if (d.field === "handshake") continue;
+      annotations.push({
+        level: "warning",
+        message: `${d.field}: ${d.a ?? "(not set)"} vs ${d.b ?? "(not set)"}`,
         title,
       });
     }

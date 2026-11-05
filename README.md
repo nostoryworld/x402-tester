@@ -43,6 +43,10 @@ x402-tester pay https://example.com/solana-api --blockhash <BLOCKHASH>
 # benchmark an endpoint's handshake latency over N sequential probes
 # (min, mean, p50, p95, max — only successful handshakes count):
 x402-tester benchmark https://example.com/paid-api --probes 20
+# diff the handshakes of two endpoints (e.g. staging vs production) —
+# exit 0 when both handshakes are valid, even when the terms differ;
+# under --ci a difference fails the run:
+x402-tester compare https://staging.example.com/paid-api https://example.com/paid-api
 # run the full paid flow end to end against local mock servers —
 # handshake, sign, facilitator /verify, paid request. No chain, no funds:
 x402-tester e2e
@@ -92,7 +96,7 @@ A check may return nothing/`true` (pass), `false` (fail), a string (fail with th
 
 ## CI mode
 
-Add `--ci` to any report command (`check`, `batch`, `benchmark`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
+Add `--ci` to any report command (`check`, `batch`, `compare`, `benchmark`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
 
 ```sh
 x402-tester check https://example.com/paid-api --ci

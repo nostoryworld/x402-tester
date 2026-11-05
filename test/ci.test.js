@@ -86,6 +86,14 @@ describe("hasWarnings", () => {
     );
     assert.equal(hasWarnings({ results: [{ ok: true }] }), false);
   });
+
+  it("treats compare differences as warnings", () => {
+    assert.equal(
+      hasWarnings({ ok: true, differences: [{ field: "price", a: "0.02 USDC", b: "0.05 USDC" }] }),
+      true
+    );
+    assert.equal(hasWarnings({ ok: true, differences: [] }), false);
+  });
 });
 
 describe("collectAnnotations", () => {
@@ -158,6 +166,61 @@ describe("collectAnnotations", () => {
     assert.equal(out[0].level, "error");
     assert.match(out[0].message, /not listed in the CDP Bazaar/);
   });
+
+  it("emits one warning per compare difference and no error when both handshakes pass", () => {
+    const out = collectAnnotations(
+      {
+        urlA: "https://a.example.com/paid",
+        urlB: "https://b.example.com/paid",
+        ok: true,
+        identical: false,
+        differences: [
+          { field: "price", a: "0.02 USDC", b: "0.05 USDC" },
+          { field: "network", a: "base", b: "ethereum" },
+        ],
+        a: { ok: true },
+        b: { ok: true },
+      },
+      { command: "compare" }
+    );
+    assert.deepEqual(out, [
+      { level: "warning", message: "price: 0.02 USDC vs 0.05 USDC", title: "x402-tester compare" },
+      { level: "warning", message: "network: base vs ethereum", title: "x402-tester compare" },
+    ]);
+  });
+
+  it("emits an error for a failing compare side and no duplicate warning for the handshake difference", () => {
+    const out = collectAnnotations(
+      {
+        urlA: "https://a.example.com/paid",
+        urlB: "https://b.example.com/paid",
+        ok: false,
+        identical: false,
+        differences: [{ field: "handshake", a: "ok", b: "expected 402, got 200" }],
+        a: { ok: true },
+        b: { ok: false, error: "expected 402, got 200" },
+      },
+      { command: "compare" }
+    );
+    assert.deepEqual(out, [
+      { level: "error", message: "https://b.example.com/paid: expected 402, got 200", title: "x402-tester compare" },
+    ]);
+  });
+
+  it("emits nothing for an identical compare", () => {
+    assert.deepEqual(
+      collectAnnotations({
+        urlA: "https://a.example.com/paid",
+        urlB: "https://b.example.com/paid",
+        ok: true,
+        identical: true,
+        differences: [],
+        a: { ok: true },
+        b: { ok: true },
+      }),
+      []
+    );
+  });
 });
 
 describe("ciExitCode", () => {
@@ -181,6 +244,16 @@ describe("ciExitCode", () => {
     };
     assert.equal(ciExitCode(batch), 0);
     assert.equal(ciExitCode(batch, { ci: true }), 1);
+  });
+
+  it("is strict for compare differences: drift passes normally, fails with --ci", () => {
+    const drifted = {
+      ok: true,
+      differences: [{ field: "price", a: "0.02 USDC", b: "0.05 USDC" }],
+    };
+    assert.equal(ciExitCode(drifted), 0);
+    assert.equal(ciExitCode(drifted, { ci: true }), 1);
+    assert.equal(ciExitCode({ ok: true, differences: [] }, { ci: true }), 0);
   });
 });
 

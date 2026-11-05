@@ -48,6 +48,10 @@ import {
   runPlugins,
   applyPluginResults,
 } from "./plugins.js";
+import {
+  compareEndpoints,
+  formatCompareReport,
+} from "./compare.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -129,11 +133,11 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--schema" && flags[i + 1]) { schemaArg = flags[i + 1]; setFlags.add("schema"); }
   const sc = flags[i].match(/^--schema=(.+)$/);
   if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
-  // `--json` switches report commands (check, batch, pay, e2e,
+  // `--json` switches report commands (check, batch, compare, pay, e2e,
   // benchmark, facilitator, x402scan, bazaar, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
-  // `--ci` enables CI mode for report commands (check, batch,
+  // `--ci` enables CI mode for report commands (check, batch, compare,
   // benchmark, e2e, schema, facilitator, x402scan, bazaar): failures
   // and warnings are emitted as GitHub Actions annotations on stderr
   // (so --json stdout stays parseable), and any warning fails the run
@@ -267,6 +271,33 @@ async function loadSchemaArg(arg) {
   }
 }
 
+/**
+ * Flags that take a following value (so the next token is their value,
+ * not a positional argument). Used by `compare`, the only command
+ * taking two URLs, to find its second URL among the flags: a token
+ * starting with "-" is a flag, and the token after a value flag is
+ * that flag's value. `--flag=value` forms carry their value inline
+ * and never consume the next token.
+ */
+const VALUE_FLAGS = new Set([
+  "--method", "-m", "--key", "--port", "--endpoint-port", "--rpc",
+  "--blockhash", "--decimals", "--retries", "--timeout", "--probes",
+  "--schema", "--config", "--plugin", "--report",
+]);
+
+function positionalArgs(flagList) {
+  const positionals = [];
+  for (let i = 0; i < flagList.length; i++) {
+    const tok = flagList[i];
+    if (tok.startsWith("-")) {
+      if (!tok.includes("=") && VALUE_FLAGS.has(tok)) i++;
+      continue;
+    }
+    positionals.push(tok);
+  }
+  return positionals;
+}
+
 function formatPayReport(signed) {
   const a = signed.payload.payload.authorization;
   return [
@@ -318,6 +349,7 @@ function usage() {
 
 Usage:
   x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md|html]
+  x402-tester compare <urlA> <urlB> [--method <METHOD>] [--json] [--report md|html]
   x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md|html]
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md|html]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md|html]
@@ -394,8 +426,8 @@ Options:
                  Markdown, --report html as a standalone HTML page,
                  instead of human-readable text (same commands
                  as --json; cannot be combined with --json).
-  --ci           CI mode for report commands (check, batch, benchmark,
-                 e2e, schema, facilitator, x402scan, bazaar): failures
+  --ci           CI mode for report commands (check, batch, compare,
+                 benchmark, e2e, schema, facilitator, x402scan, bazaar): failures
                  and warnings are emitted as GitHub Actions annotations
                  (::error:: / ::warning::) on stderr, so --json stdout
                  stays parseable — and any warning fails the run even
@@ -405,6 +437,14 @@ Options:
 Commands:
   check          Validate the 402 handshake of a paid endpoint, then
                  run any --plugin / configured custom checks against it.
+  compare        Diff the handshakes of two endpoints: run check
+                 against each URL and report every payment-term field
+                 that differs (price, network, asset, payee, scheme,
+                 version, timeout, …). Exit 0 when both handshakes
+                 are valid, even when they differ — a difference is
+                 information, not a failure. Under --ci a difference
+                 fails the run, so it gates staging-vs-production
+                 drift in CI.
   benchmark      Probe an endpoint N times (default 10) and report
                  handshake latency: min, mean, p50, p95, max. Exit 0
                  only when every probe succeeded; partial runs still
@@ -460,6 +500,7 @@ Config file (x402-tester.json):
 
 Examples:
   x402-tester check https://example.com/paid-api
+  x402-tester compare https://staging.example.com/paid-api https://example.com/paid-api
   x402-tester batch endpoints.txt --json | jq .failed
   x402-tester check https://example.com/paid-api --json | jq .price
   x402-tester check https://example.com/paid-api --report md > report.md
@@ -741,6 +782,19 @@ if (cmd === "config") {
     }
     emit(report, formatReport, "Handshake check");
     settle(report, report.ok, "check");
+  }
+} else if (cmd === "compare") {
+  // Two URLs: the first is the parsed positional, the second is the
+  // first positional among the flags (flags may precede or follow it).
+  const candidates = url ? [url, ...positionalArgs(flags)] : positionalArgs(flags);
+  const [urlA, urlB, ...extra] = candidates;
+  if (!urlA || !urlB || extra.length > 0) {
+    console.error("compare needs exactly two URLs: x402-tester compare <urlA> <urlB>");
+    process.exitCode = 1;
+  } else {
+    const report = await compareEndpoints(urlA, urlB, { method, retries, timeoutMs });
+    emit(report, formatCompareReport, "Handshake comparison");
+    settle(report, report.ok, "compare");
   }
 } else if (cmd === "benchmark" && url) {
   const report = await runBenchmark(url, { probes, method, retries, timeoutMs });
