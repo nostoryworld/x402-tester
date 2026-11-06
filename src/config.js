@@ -18,6 +18,7 @@
  *     "retries": 2,
  *     "timeoutMs": 10000,
  *     "probes": 10,
+ *     "burst": 20,
  *     "endpoints": [
  *       "https://example.com/paid-api",
  *       "POST https://example.com/post-only-api"
@@ -68,6 +69,7 @@ export const CONFIG_KEYS = [
   "retries",
   "timeoutMs",
   "probes",
+  "burst",
   "endpoints",
   "plugins",
 ];
@@ -196,6 +198,12 @@ export function parseConfig(raw, source = null) {
       fail(source, "'probes' must be an integer between 1 and 100");
     }
     config.probes = raw.probes;
+  }
+  if (raw.burst !== undefined) {
+    if (!Number.isInteger(raw.burst) || raw.burst < 1 || raw.burst > 100) {
+      fail(source, "'burst' must be an integer between 1 and 100");
+    }
+    config.burst = raw.burst;
   }
   if (raw.endpoints !== undefined) {
     if (!Array.isArray(raw.endpoints) || raw.endpoints.length === 0) {

@@ -25,7 +25,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 20** — Custom check plugin system (user-supplied check functions)
 - [x] **Day 21** — HTML report output
 - [x] **Day 22** — Compare mode: diff the handshakes of two endpoints
-- [ ] **Day 23** — Rate-limit behavior probe (does the endpoint 429 gracefully?)
+- [x] **Day 23** — Rate-limit behavior probe (does the endpoint 429 gracefully?)
 - [ ] **Day 24** — Signed-payment replay protection check
 - [ ] **Day 25** — Example fixtures for well-known x402 endpoints
 - [ ] **Day 26** — npm publish preparation (package metadata, files allowlist)

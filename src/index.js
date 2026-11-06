@@ -52,6 +52,12 @@ import {
   compareEndpoints,
   formatCompareReport,
 } from "./compare.js";
+import {
+  probeRateLimit,
+  formatRateLimitReport,
+  DEFAULT_BURST,
+  MAX_BURST,
+} from "./ratelimit.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -78,6 +84,7 @@ let decimals; // --decimals overrides the mint decimals (default: extra.decimals
 let retries = 0; // --retries <n>: retries after the first attempt (0 = single attempt)
 let timeoutMs = 15000; // --timeout <ms>: per-attempt timeout, in milliseconds
 let probes = DEFAULT_PROBES; // --probes <n>: benchmark probes (default: 10)
+let burst = DEFAULT_BURST; // --burst <n>: rate-limit burst size (default: 20)
 let schemaArg = null; // --schema <path-or-JSON>: documented shape for a paid response
 let ci = false; // --ci: CI mode — annotations on stderr, warnings fail the run
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
@@ -126,6 +133,11 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--probes" && flags[i + 1]) { probes = Number(flags[i + 1]); setFlags.add("probes"); }
   const pr = flags[i].match(/^--probes=(.+)$/);
   if (pr) { probes = Number(pr[1]); setFlags.add("probes"); }
+  // `--burst N` / `--burst=N`: how many rapid requests the
+  // rate-limit probe fires (1–100; see ratelimit.js).
+  if (flags[i] === "--burst" && flags[i + 1]) { burst = Number(flags[i + 1]); setFlags.add("burst"); }
+  const bu = flags[i].match(/^--burst=(.+)$/);
+  if (bu) { burst = Number(bu[1]); setFlags.add("burst"); }
   // `--schema <path-or-JSON>` / `--schema=<...>`: the documented shape
   // a paid response must match. A path to a JSON schema file, or the
   // schema itself as inline JSON. Used by `e2e` (validates the live
@@ -134,11 +146,11 @@ for (let i = 0; i < flags.length; i++) {
   const sc = flags[i].match(/^--schema=(.+)$/);
   if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
   // `--json` switches report commands (check, batch, compare, pay, e2e,
-  // benchmark, facilitator, x402scan, bazaar, schema) to machine-readable
+  // benchmark, ratelimit, facilitator, x402scan, bazaar, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
   // `--ci` enables CI mode for report commands (check, batch, compare,
-  // benchmark, e2e, schema, facilitator, x402scan, bazaar): failures
+  // benchmark, ratelimit, e2e, schema, facilitator, x402scan, bazaar): failures
   // and warnings are emitted as GitHub Actions annotations on stderr
   // (so --json stdout stays parseable), and any warning fails the run
   // even when the check itself passed. See ci.js.
@@ -187,6 +199,7 @@ if (!setFlags.has("endpointPort") && config.endpointPort !== undefined) endpoint
 if (!setFlags.has("retries") && config.retries !== undefined) retries = config.retries;
 if (!setFlags.has("timeoutMs") && config.timeoutMs !== undefined) timeoutMs = config.timeoutMs;
 if (!setFlags.has("probes") && config.probes !== undefined) probes = config.probes;
+if (!setFlags.has("burst") && config.burst !== undefined) burst = config.burst;
 if (!setFlags.has("ci") && config.ci !== undefined) ci = config.ci;
 // Effective plugins: config entries first, then CLI flags, in order.
 // A path listed twice runs once (loadPlugins dedupes by resolved path).
@@ -205,6 +218,10 @@ if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600000) {
 }
 if (!Number.isInteger(probes) || probes < 1 || probes > MAX_PROBES) {
   console.error(`error: --probes must be an integer between 1 and ${MAX_PROBES}`);
+  process.exit(1);
+}
+if (!Number.isInteger(burst) || burst < 1 || burst > MAX_BURST) {
+  console.error(`error: --burst must be an integer between 1 and ${MAX_BURST}`);
   process.exit(1);
 }
 
@@ -279,10 +296,10 @@ async function loadSchemaArg(arg) {
  * that flag's value. `--flag=value` forms carry their value inline
  * and never consume the next token.
  */
-const VALUE_FLAGS = new Set([
+  const VALUE_FLAGS = new Set([
   "--method", "-m", "--key", "--port", "--endpoint-port", "--rpc",
   "--blockhash", "--decimals", "--retries", "--timeout", "--probes",
-  "--schema", "--config", "--plugin", "--report",
+  "--burst", "--schema", "--config", "--plugin", "--report",
 ]);
 
 function positionalArgs(flagList) {
@@ -351,6 +368,7 @@ Usage:
   x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md|html]
   x402-tester compare <urlA> <urlB> [--method <METHOD>] [--json] [--report md|html]
   x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md|html]
+  x402-tester ratelimit <url> [--burst <N>] [--method <METHOD>] [--json] [--report md|html]
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md|html]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md|html]
   x402-tester e2e [--key <0x...>] [--schema <file-or-JSON>] [--json] [--report md|html]
@@ -394,6 +412,13 @@ Options:
                  sequentially so the numbers reflect ordinary response
                  time, not self-inflicted load; only successful
                  handshakes count toward p50/p95.
+  --burst        Rate-limit burst size (default: 20, max: 100). The
+                 ratelimit command fires this many rapid requests in
+                 a row, with no delay between them, and reports
+                 whether the endpoint 429s and whether those 429s
+                 carry a parseable Retry-After. --retries is ignored
+                 for ratelimit: retrying would re-ask a 429 and hide
+                 the behaviour being measured.
   --schema       Documented shape a paid response must match: a path
                  to a JSON schema file, or the schema as inline JSON.
                  With e2e it validates the live paid response as an
@@ -420,14 +445,15 @@ Options:
                  Port for the mock paid endpoint (default: 4022).
   --json         Machine-readable output: print the report object as
                  JSON instead of human-readable text. Works with check,
-                 batch, pay, e2e, facilitator and x402scan (not mock, which
+                 batch, compare, pay, e2e, ratelimit, benchmark,
+                 facilitator and x402scan (not mock, which
                  runs an interactive server).
   --report       Report format: --report md renders the report as
                  Markdown, --report html as a standalone HTML page,
                  instead of human-readable text (same commands
                  as --json; cannot be combined with --json).
   --ci           CI mode for report commands (check, batch, compare,
-                 benchmark, e2e, schema, facilitator, x402scan, bazaar): failures
+                 benchmark, ratelimit, e2e, schema, facilitator, x402scan, bazaar): failures
                  and warnings are emitted as GitHub Actions annotations
                  (::error:: / ::warning::) on stderr, so --json stdout
                  stays parseable — and any warning fails the run even
@@ -449,6 +475,13 @@ Commands:
                  handshake latency: min, mean, p50, p95, max. Exit 0
                  only when every probe succeeded; partial runs still
                  report the stats from the probes that did succeed.
+  ratelimit      Fire a burst of rapid requests (default 20) and
+                 report whether the endpoint throttles with 429s —
+                 and whether those 429s are graceful (a parseable
+                 Retry-After on every one). Exit 0 when the probe
+                 ran cleanly; "not rate limited" is a finding, not
+                 a failure. Under --ci, ungraceful 429s and 5xx
+                 responses under load fail the run.
   batch          Check every endpoint listed in a file, one per line
                  (blank lines and # comments ignored; a line may carry
                  its own method, e.g. "POST https://…"). Exit 0 only
@@ -488,7 +521,7 @@ Commands:
 Config file (x402-tester.json):
   Drop one in your project root and stop repeating flags. Any of
   method, json, ci, report ("md"), rpc, blockhash, decimals, port,
-  endpointPort, retries, timeoutMs, probes, endpoints (a list of
+  endpointPort, retries, timeoutMs, probes, burst, endpoints (a list of
   URLs, each optionally prefixed with a method, e.g. "POST https://…"),
   and plugins (a list of custom-check plugin file paths)
   may be set. Config uses timeoutMs (milliseconds); the CLI flag is
@@ -712,7 +745,7 @@ async function runMock() {
 // endpoint, so a checked-in config makes `check` a zero-argument run.
 if (
   !url &&
-  (cmd === "check" || cmd === "benchmark" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan" || cmd === "bazaar") &&
+  (cmd === "check" || cmd === "benchmark" || cmd === "ratelimit" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan" || cmd === "bazaar") &&
   config.endpoints &&
   config.endpoints.length > 0
 ) {
@@ -741,6 +774,7 @@ if (cmd === "config") {
         retries,
         timeoutMs,
         probes,
+        burst,
         ci,
         endpoints: config.endpoints ?? [],
         plugins: pluginPaths,
@@ -800,6 +834,12 @@ if (cmd === "config") {
   const report = await runBenchmark(url, { probes, method, retries, timeoutMs });
   emit(report, formatBenchmarkReport, "Latency benchmark");
   settle(report, report.ok, "benchmark");
+} else if (cmd === "ratelimit" && url) {
+  // --retries is deliberately NOT passed: retrying would re-ask a
+  // 429 and hide the behaviour being measured (see ratelimit.js).
+  const report = await probeRateLimit(url, { burst, method, timeoutMs });
+  emit(report, formatRateLimitReport, "Rate-limit probe");
+  settle(report, report.ok, "ratelimit");
 } else if (cmd === "batch") {
   await runBatchCmd(url);
 } else if (cmd === "pay" && url) {

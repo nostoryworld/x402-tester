@@ -55,6 +55,13 @@ test("accepts probes within 1–100 and rejects the rest", () => {
   }
 });
 
+test("accepts burst within 1–100 and rejects the rest", () => {
+  assert.deepEqual(parseConfig({ burst: 20 }), { burst: 20 });
+  for (const burst of [0, 101, 2.5, "20"]) {
+    assert.throws(() => parseConfig({ burst }), /burst/);
+  }
+});
+
 test("rejects non-object top levels", () => {
   for (const raw of [null, [], "x", 42]) {
     assert.throws(() => parseConfig(raw), ConfigError);

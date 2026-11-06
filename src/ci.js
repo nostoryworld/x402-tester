@@ -19,7 +19,7 @@
  * This module is pure except for `emitCiAnnotations`, which takes an
  * injectable `write` so tests never touch the real stderr. It knows
  * every report shape the CLI produces (single check, batch, compare,
- * benchmark, end-to-end steps, schema errors, facilitator reachability,
+ * benchmark, rate-limit probe, end-to-end steps, schema errors, facilitator reachability,
  * discovery listings) and derives pass/fail from the report itself, so
  * the CLI cannot accidentally report one verdict in text and another to CI.
  */
@@ -163,12 +163,22 @@ export function collectAnnotations(report, { command } = {}) {
     return annotations;
   }
 
-  // Benchmark: one annotation per failed probe.
+  // Benchmark / rate-limit probe: one annotation per failed probe,
+  // plus one warning per warning. A rate-limit probe warns on
+  // ungraceful 429s and 5xx responses under load; benchmark reports
+  // never carry warnings, so this changes nothing for them.
   if (Array.isArray(report.failures)) {
     for (const failure of report.failures) {
       annotations.push({
         level: "error",
         message: `probe ${failure.probe} failed: ${failure.error || "probe failed"}`,
+        title,
+      });
+    }
+    for (const w of report.warnings || []) {
+      annotations.push({
+        level: "warning",
+        message: withUrl(report.url, w),
         title,
       });
     }

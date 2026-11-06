@@ -47,6 +47,11 @@ x402-tester benchmark https://example.com/paid-api --probes 20
 # exit 0 when both handshakes are valid, even when the terms differ;
 # under --ci a difference fails the run:
 x402-tester compare https://staging.example.com/paid-api https://example.com/paid-api
+# fire a burst of rapid requests (default 20) and report whether the
+# endpoint throttles with 429s — and whether those 429s are graceful
+# (a parseable Retry-After on every one). Exit 0 when the probe ran
+# cleanly; "not rate limited" is a finding, not a failure:
+x402-tester ratelimit https://example.com/paid-api --burst 20
 # run the full paid flow end to end against local mock servers —
 # handshake, sign, facilitator /verify, paid request. No chain, no funds:
 x402-tester e2e
@@ -96,7 +101,7 @@ A check may return nothing/`true` (pass), `false` (fail), a string (fail with th
 
 ## CI mode
 
-Add `--ci` to any report command (`check`, `batch`, `compare`, `benchmark`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
+Add `--ci` to any report command (`check`, `batch`, `compare`, `benchmark`, `ratelimit`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
 
 ```sh
 x402-tester check https://example.com/paid-api --ci
@@ -158,7 +163,7 @@ Drop an `x402-tester.json` in your project root (or any parent directory — it'
 }
 ```
 
-Supported keys: `method`, `json`, `ci`, `report` (`"md"` or `"html"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `endpoints`, `plugins` (custom-check plugin file paths, run by `check`). Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
+Supported keys: `method`, `json`, `ci`, `report` (`"md"` or `"html"`), `rpc`, `blockhash`, `decimals`, `port`, `endpointPort`, `retries`, `timeoutMs`, `probes`, `burst`, `endpoints`, `plugins` (custom-check plugin file paths, run by `check`). Probe flags: `--retries N` retries only transient failures (transport errors, 429/502/503/504) and `--timeout N` sets the per-attempt timeout in milliseconds (default 15000). `--burst N` sets the rate-limit probe size (default 20, max 100); `--retries` is ignored for `ratelimit`, since retrying would hide the 429s being measured. A command run without a URL checks the first configured endpoint; `batch` run without a file checks all of them. Precedence: CLI flags beat the config file, which beats built-in defaults. Run `x402-tester config` to inspect the resolved settings, or point at a specific file with `--config <path>`. Signing keys are never read from config — use `--key` or `X402_TEST_KEY` / `X402_SOLANA_TEST_KEY`.
 
 ## What it checks
 

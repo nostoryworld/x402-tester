@@ -146,6 +146,25 @@ describe("collectAnnotations", () => {
     );
   });
 
+  it("emits rate-limit probe warnings alongside probe errors", () => {
+    const out = collectAnnotations(
+      {
+        url: "https://example.com/paid-api",
+        ok: true,
+        failures: [],
+        warnings: ["2 of 2 429 responses carried no Retry-After header — clients must guess when to retry"],
+      },
+      { command: "ratelimit" }
+    );
+    assert.deepEqual(out, [
+      {
+        level: "warning",
+        message: "https://example.com/paid-api: 2 of 2 429 responses carried no Retry-After header — clients must guess when to retry",
+        title: "x402-tester ratelimit",
+      },
+    ]);
+  });
+
   it("emits one error per schema mismatch, naming the field", () => {
     const out = collectAnnotations({
       file: "paid-response.json",
