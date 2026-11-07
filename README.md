@@ -61,6 +61,10 @@ x402-tester e2e --schema '{"type":"object","required":["resource"],"properties":
 # or validate a saved paid response offline (e.g. captured from a real
 # endpoint) against a schema file — exit 0 only when every field matches:
 x402-tester schema paid-response.json --schema response-schema.json
+# replay protection check: sign one payment against local mocks, settle
+# it, then send the exact same signed payment again — a protected
+# endpoint rejects the replay (402); exit 0 only when it does:
+x402-tester replay
 # start a mock facilitator + mock paid endpoint on localhost for manual
 # testing (curl your own client against them); stops on Ctrl-C:
 x402-tester mock
@@ -101,7 +105,7 @@ A check may return nothing/`true` (pass), `false` (fail), a string (fail with th
 
 ## CI mode
 
-Add `--ci` to any report command (`check`, `batch`, `compare`, `benchmark`, `ratelimit`, `e2e`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
+Add `--ci` to any report command (`check`, `batch`, `compare`, `benchmark`, `ratelimit`, `e2e`, `replay`, `schema`, `facilitator`, `x402scan`, `bazaar`) and it becomes a CI gate:
 
 ```sh
 x402-tester check https://example.com/paid-api --ci

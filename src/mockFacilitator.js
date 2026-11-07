@@ -18,6 +18,16 @@
  *
  * Nothing ever touches a chain.
  *
+ * Replay protection: a signed authorization must only settle once.
+ * The mock tracks every payment it settles (EVM authorization nonce,
+ * Solana transaction bytes) and rejects a later /verify of the same
+ * payment as a replay — the same rule a real facilitator enforces by
+ * checking on-chain nonce state. /verify does NOT consume a payment:
+ * the client may verify pre-flight and the endpoint verifies again,
+ * so only /settle marks a payment spent. Pass
+ * `replayProtection: false` to start a facilitator that never tracks
+ * settlements — the "vulnerable" half of the Day 24 replay check.
+ *
  * `POST /verify`  — x402 verify shape `{ x402Version, paymentPayload, paymentRequirements }`
  *                    → `{ isValid, invalidReason? }`
  * `POST /settle`  — verifies first, then returns a mock settlement receipt.
@@ -180,6 +190,25 @@ async function verifyEvmPayload(paymentPayload, req, { nowSec } = {}) {
   return { isValid: true };
 }
 
+/**
+ * The replay identity of a signed payment: the value that must only
+ * ever settle once. EVM payments are identified by their EIP-3009
+ * authorization nonce; Solana payments by the serialized transaction
+ * itself (the base64 wire bytes uniquely identify the payment).
+ * Returns null when the payload carries neither — such a payload
+ * fails verification on its own merits, so there is nothing to track.
+ */
+export function replayIdentity(paymentPayload) {
+  const inner = paymentPayload && paymentPayload.payload;
+  if (!inner || typeof inner !== "object") return null;
+  const nonce = inner.authorization && inner.authorization.nonce;
+  if (typeof nonce === "string" && nonce !== "") return `evm:${nonce}`;
+  if (typeof inner.transaction === "string" && inner.transaction !== "") {
+    return `sol:${inner.transaction}`;
+  }
+  return null;
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -208,12 +237,20 @@ function sendJson(res, status, obj) {
 
 /**
  * Start a mock facilitator on 127.0.0.1. Options:
- *   port          — bind port (0 = ephemeral)
- *   nowSec        — pin the verification clock (tests)
- *   alwaysReject  — every /verify fails (tests the unhappy path)
+ *   port              — bind port (0 = ephemeral)
+ *   nowSec            — pin the verification clock (tests)
+ *   alwaysReject      — every /verify fails (tests the unhappy path)
+ *   replayProtection  — track settled payments and reject a later
+ *                       /verify of the same payment as a replay
+ *                       (default: true; false simulates a facilitator
+ *                       with no replay protection at all)
  * Returns { url, close() }.
  */
-export async function startMockFacilitator({ port = 0, nowSec, alwaysReject = false } = {}) {
+export async function startMockFacilitator({ port = 0, nowSec, alwaysReject = false, replayProtection = true } = {}) {
+  // Payments this facilitator has settled, by replay identity — the
+  // mock's stand-in for on-chain nonce state. Scoped to this server
+  // instance: a fresh facilitator knows nothing, like a fresh chain.
+  const settled = new Set();
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/healthz") {
@@ -243,7 +280,23 @@ export async function startMockFacilitator({ port = 0, nowSec, alwaysReject = fa
         { nowSec }
       );
 
+      // A settled payment is spent: a later /verify of the same
+      // authorization is a replay, not a fresh payment. This check
+      // runs after alwaysReject (a facilitator configured to reject
+      // everything rejects replays too) and before the signature
+      // checks — a spent nonce is spent whatever the signature says.
+      // /verify never records anything: the client may verify
+      // pre-flight and the endpoint verifies again, so only /settle
+      // below marks a payment spent.
+      const identity = replayProtection ? replayIdentity(body.paymentPayload) : null;
       if (req.url === "/verify") {
+        if (identity && settled.has(identity)) {
+          return sendJson(res, 200, {
+            isValid: false,
+            invalidReason:
+              "payment has already been settled — this authorization was already used (replay)",
+          });
+        }
         return sendJson(res, 200, verdict);
       }
 
@@ -253,6 +306,16 @@ export async function startMockFacilitator({ port = 0, nowSec, alwaysReject = fa
       // still represents nothing until a facilitator broadcasts it.
       if (!verdict.isValid) {
         return sendJson(res, 200, { success: false, errorReason: verdict.invalidReason });
+      }
+      if (identity) {
+        if (settled.has(identity)) {
+          return sendJson(res, 200, {
+            success: false,
+            errorReason:
+              "payment has already been settled — this authorization was already used (replay)",
+          });
+        }
+        settled.add(identity);
       }
       if (verdict.solana) {
         return sendJson(res, 200, {

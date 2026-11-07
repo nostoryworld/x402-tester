@@ -58,6 +58,10 @@ import {
   DEFAULT_BURST,
   MAX_BURST,
 } from "./ratelimit.js";
+import {
+  runReplayCheck,
+  formatReplayReport,
+} from "./replay.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -146,11 +150,11 @@ for (let i = 0; i < flags.length; i++) {
   const sc = flags[i].match(/^--schema=(.+)$/);
   if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
   // `--json` switches report commands (check, batch, compare, pay, e2e,
-  // benchmark, ratelimit, facilitator, x402scan, bazaar, schema) to machine-readable
+  // replay, benchmark, ratelimit, facilitator, x402scan, bazaar, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
   // `--ci` enables CI mode for report commands (check, batch, compare,
-  // benchmark, ratelimit, e2e, schema, facilitator, x402scan, bazaar): failures
+  // benchmark, ratelimit, e2e, replay, schema, facilitator, x402scan, bazaar): failures
   // and warnings are emitted as GitHub Actions annotations on stderr
   // (so --json stdout stays parseable), and any warning fails the run
   // even when the check itself passed. See ci.js.
@@ -372,6 +376,7 @@ Usage:
   x402-tester batch <file> [--method <METHOD>] [--json] [--report md|html]
   x402-tester pay <url> [--method <METHOD>] [--key <0x...>] [--json] [--report md|html]
   x402-tester e2e [--key <0x...>] [--schema <file-or-JSON>] [--json] [--report md|html]
+  x402-tester replay [--key <0x...>] [--json] [--report md|html]
   x402-tester schema <response.json> --schema <schema-file-or-JSON> [--json] [--report md|html]
   x402-tester mock [--port <n>] [--endpoint-port <n>]
   x402-tester facilitator <facilitator-url> [--json] [--report md|html]
@@ -445,7 +450,7 @@ Options:
                  Port for the mock paid endpoint (default: 4022).
   --json         Machine-readable output: print the report object as
                  JSON instead of human-readable text. Works with check,
-                 batch, compare, pay, e2e, ratelimit, benchmark,
+                 batch, compare, pay, e2e, replay, ratelimit, benchmark,
                  facilitator and x402scan (not mock, which
                  runs an interactive server).
   --report       Report format: --report md renders the report as
@@ -453,7 +458,7 @@ Options:
                  instead of human-readable text (same commands
                  as --json; cannot be combined with --json).
   --ci           CI mode for report commands (check, batch, compare,
-                 benchmark, ratelimit, e2e, schema, facilitator, x402scan, bazaar): failures
+                 benchmark, ratelimit, e2e, replay, schema, facilitator, x402scan, bazaar): failures
                  and warnings are emitted as GitHub Actions annotations
                  (::error:: / ::warning::) on stderr, so --json stdout
                  stays parseable — and any warning fails the run even
@@ -498,6 +503,11 @@ Commands:
                  with a throwaway test key. No chain, no funds.
                  With --schema, the paid response is also validated
                  against its documented shape as a fifth step.
+  replay         Sign one payment against local mock servers, settle
+                 it, then send the exact same signed payment again:
+                 a protected endpoint rejects the replay (402), a
+                 replayable one serves the resource twice. Exit 0
+                 only when the replay is rejected. No chain, no funds.
   schema         Validate a saved paid response (JSON file) against its
                  documented shape (--schema). Exit 0 only when every
                  field matches — for CI on captured real responses.
@@ -647,6 +657,19 @@ async function runE2E() {  const ephemeral = !key;
   const report = await runPaidEndToEnd({ privateKey: signingKey, expectedSchema });
   emit(report, formatEndToEndReport, "Paid end-to-end test");
   settle(report, report.ok, "e2e");
+}
+
+async function runReplay() {
+  const ephemeral = !key;
+  const signingKey = key || generateTestKey();
+  if (ephemeral) {
+    console.error(
+      "using a fresh throwaway test key (no funds, local only) — pass --key to use your own test key."
+    );
+  }
+  const report = await runReplayCheck({ privateKey: signingKey });
+  emit(report, formatReplayReport, "Replay protection check");
+  settle(report, report.ok, "replay");
 }
 
 // Validate a saved paid response (e.g. captured from a real endpoint)
@@ -846,6 +869,8 @@ if (cmd === "config") {
   await runPay(url);
 } else if (cmd === "e2e" && !url) {
   await runE2E();
+} else if (cmd === "replay" && !url) {
+  await runReplay();
 } else if (cmd === "schema" && url) {
   await runSchemaCmd(url);
 } else if (cmd === "mock" && !url) {

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { startMockFacilitator, verifyPaymentPayload } from "../src/mockFacilitator.js";
+import { startMockFacilitator, verifyPaymentPayload, replayIdentity } from "../src/mockFacilitator.js";
 import { signPayment } from "../src/pay.js";
 import { normalizeRequirement } from "../src/requirements.js";
 
@@ -249,5 +249,95 @@ describe("verifyPaymentPayload (pure)", () => {
     const verdict = await verifyPaymentPayload(await signedPayload(), [alien], { nowSec: NOW });
     assert.equal(verdict.isValid, false);
     assert.match(verdict.invalidReason, /unsupported network/);
+  });
+});
+
+describe("replay protection (settled payments)", () => {
+  const settleBody = async () => ({
+    x402Version: 2,
+    paymentPayload: await signedPayload(),
+    paymentRequirements: [BASE_RAW],
+  });
+
+  it("rejects /verify of a payment that was already settled", async () => {
+    const fac = await mockFac();
+    try {
+      const body = await settleBody();
+      const settled = await postJson(`${fac.url}/settle`, body);
+      assert.equal(settled.body.success, true);
+      const replay = await postJson(`${fac.url}/verify`, body);
+      assert.equal(replay.body.isValid, false);
+      assert.match(replay.body.invalidReason, /already been settled.*replay/);
+    } finally {
+      await fac.close();
+    }
+  });
+
+  it("refuses to settle the same payment twice", async () => {
+    const fac = await mockFac();
+    try {
+      const body = await settleBody();
+      assert.equal((await postJson(`${fac.url}/settle`, body)).body.success, true);
+      const second = await postJson(`${fac.url}/settle`, body);
+      assert.equal(second.body.success, false);
+      assert.match(second.body.errorReason, /already been settled.*replay/);
+    } finally {
+      await fac.close();
+    }
+  });
+
+  it("verify does not consume: the same payment verifies twice before settling", async () => {
+    const fac = await mockFac();
+    try {
+      const body = await settleBody();
+      assert.equal((await postJson(`${fac.url}/verify`, body)).body.isValid, true);
+      assert.equal((await postJson(`${fac.url}/verify`, body)).body.isValid, true);
+    } finally {
+      await fac.close();
+    }
+  });
+
+  it("a failed settle does not spend the nonce: it still verifies after", async () => {
+    const fac = await mockFac();
+    try {
+      const payload = await signedPayload();
+      const bad = await postJson(`${fac.url}/settle`, {
+        x402Version: 2,
+        paymentPayload: payload,
+        paymentRequirements: [{ ...BASE_RAW, amount: "1" }],
+      });
+      assert.equal(bad.body.success, false);
+      const good = await postJson(`${fac.url}/verify`, {
+        x402Version: 2,
+        paymentPayload: payload,
+        paymentRequirements: [BASE_RAW],
+      });
+      assert.equal(good.body.isValid, true);
+    } finally {
+      await fac.close();
+    }
+  });
+
+  it("replayProtection: false never tracks settlements", async () => {
+    const fac = await startMockFacilitator({ nowSec: NOW, replayProtection: false });
+    try {
+      const body = await settleBody();
+      assert.equal((await postJson(`${fac.url}/settle`, body)).body.success, true);
+      assert.equal((await postJson(`${fac.url}/settle`, body)).body.success, true);
+      assert.equal((await postJson(`${fac.url}/verify`, body)).body.isValid, true);
+    } finally {
+      await fac.close();
+    }
+  });
+
+  it("replayIdentity keys EVM payments by nonce and Solana by transaction", async () => {
+    const evm = await signedPayload();
+    assert.equal(replayIdentity(evm), `evm:${evm.payload.authorization.nonce}`);
+    assert.equal(
+      replayIdentity({ payload: { transaction: "aGVsbG8=" } }),
+      "sol:aGVsbG8="
+    );
+    assert.equal(replayIdentity({}), null);
+    assert.equal(replayIdentity(null), null);
   });
 });
