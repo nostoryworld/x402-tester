@@ -1,0 +1,222 @@
+{
+  "name": "onesource-block-number",
+  "url": "https://api.onesource.io/api/chain/block-number",
+  "method": "GET",
+  "description": "OneSource \u2014 latest Ethereum block height via eth_blockNumber. Offers two schemes (exact + batch-settlement). 0.001 USDC on Base.",
+  "capturedAt": "2026-11-08",
+  "capturedFrom": "live 402 probe",
+  "response": {
+    "x402Version": 2,
+    "resource": {
+      "url": "https://api.onesource.io/api/chain/block-number",
+      "description": "Latest Ethereum block height - current chain tip via eth_blockNumber",
+      "mimeType": "application/json"
+    },
+    "accepts": [
+      {
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount": "1000",
+        "maxAmountRequired": "1000",
+        "payTo": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+        "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+        "maxTimeoutSeconds": 3600,
+        "extra": {
+          "credentialTypes": [
+            "authorization"
+          ],
+          "name": "USD Coin",
+          "version": "2"
+        }
+      },
+      {
+        "scheme": "batch-settlement",
+        "network": "eip155:8453",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "currency": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "amount": "1000",
+        "maxAmountRequired": "1000",
+        "payTo": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+        "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea",
+        "maxTimeoutSeconds": 3600,
+        "extra": {
+          "name": "USD Coin",
+          "receiverAuthorizer": "0x11dF9F6280632aB8F12926b3f569E493EaEcf81b",
+          "version": "2",
+          "withdrawDelay": 86400
+        }
+      }
+    ],
+    "extensions": {
+      "bazaar": {
+        "info": {
+          "input": {
+            "method": "GET",
+            "queryParams": {
+              "network": "ethereum"
+            },
+            "type": "http"
+          },
+          "output": {
+            "example": {
+              "data": {
+                "result": "0x133da1e"
+              },
+              "meta": {
+                "cost_usdc": "0.001",
+                "endpoint": "/api/chain/block-number",
+                "payment_chain": "base",
+                "payment_token": "USDC",
+                "request_id": "00000000abcdef01"
+              }
+            },
+            "type": "json"
+          }
+        },
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "input": {
+              "additionalProperties": false,
+              "properties": {
+                "method": {
+                  "enum": [
+                    "GET",
+                    "HEAD",
+                    "DELETE"
+                  ],
+                  "type": "string"
+                },
+                "queryParams": {
+                  "properties": {
+                    "network": {
+                      "default": "ethereum",
+                      "enum": [
+                        "ethereum",
+                        "sepolia",
+                        "robinhood"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "const": "http",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "method"
+              ],
+              "type": "object"
+            },
+            "output": {
+              "properties": {
+                "example": {
+                  "properties": {
+                    "data": {
+                      "description": "Endpoint-specific response payload",
+                      "properties": {
+                        "result": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "integer"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "meta": {
+                      "properties": {
+                        "cost_usdc": {
+                          "type": "string"
+                        },
+                        "endpoint": {
+                          "type": "string"
+                        },
+                        "payment_chain": {
+                          "type": "string"
+                        },
+                        "payment_token": {
+                          "type": "string"
+                        },
+                        "request_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "endpoint",
+                        "request_id"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "meta"
+                  ],
+                  "type": "object"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "input"
+          ],
+          "type": "object"
+        }
+      }
+    },
+    "error": "Payment required",
+    "meta": {
+      "cost_usdc": "0.001",
+      "endpoint": "/api/chain/block-number",
+      "network": "eip155:8453"
+    },
+    "payment_rails": [
+      {
+        "assets": [
+          "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        ],
+        "chain": "eip155:8453",
+        "rail": "x402",
+        "recipient": "0x52E29e0d2Aa49bfBfC548C0A9F2196F4aa51f3ea"
+      },
+      {
+        "assets": [
+          "0x20c000000000000000000000b9537d11c60e8b50",
+          "0x20c0000000000000000000000000000000000000"
+        ],
+        "chain": "tempo:4217",
+        "rail": "mpp",
+        "recipient": "0x19B8e99079A5558ff4460357b0a78e14a7F600B7"
+      }
+    ],
+    "api_key_subscription": {
+      "description": "Alternative to paying per call: a flat-rate monthly subscription authenticated with `Authorization: Bearer <key>`. No wallet, stablecoin, or on-chain settlement required. Use this if the client cannot custody a private key, if billing must be invoiced, or if per-call pricing costs more than a flat fee at your volume.",
+      "url": "https://onesource.io/rest-api#pricing"
+    }
+  }
+}

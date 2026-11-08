@@ -1,0 +1,37 @@
+{
+  "name": "ax1-q-verdict",
+  "url": "https://www.ax1.vc/api/dashboard/q-verdict/resource",
+  "method": "POST",
+  "description": "AX1 Console \u2014 AI-written verdict on a Base token contract address (onchain metrics, plain-language take, shareable card). POST-only; 0.02 USDC on Base. ~22k calls in the last 30 days per the CDP Bazaar.",
+  "capturedAt": "2026-11-08",
+  "capturedFrom": "CDP Bazaar catalog listing (live probe not re-run; accepts array as indexed by the Bazaar)",
+  "response": {
+    "x402Version": 2,
+    "error": "Payment required",
+    "resource": {
+      "url": "https://www.ax1.vc/api/dashboard/q-verdict/resource",
+      "description": "Send a Base token contract address, get an AI-written verdict: onchain metrics, a plain-language take, and a shareable verdict card. Entertainment, not trading advice.",
+      "mimeType": "application/json",
+      "serviceName": "AX1 Console",
+      "tags": [
+        "agents",
+        "token",
+        "verdict"
+      ]
+    },
+    "accepts": [
+      {
+        "amount": "20000",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "extra": {
+          "name": "USD Coin",
+          "version": "2"
+        },
+        "maxTimeoutSeconds": 300,
+        "network": "eip155:8453",
+        "payTo": "0x7284D41b5b852F2bd4c99bDf95043D84452d299C",
+        "scheme": "exact"
+      }
+    ]
+  }
+}

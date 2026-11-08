@@ -1,0 +1,117 @@
+{
+  "name": "xpay-uuid",
+  "url": "https://www.api-xpay.com/x402/uuid",
+  "method": "GET",
+  "description": "X Pay \u2014 generate a random UUID v4. 0.005 USDC on Base.",
+  "capturedAt": "2026-11-08",
+  "capturedFrom": "live 402 probe",
+  "response": {
+    "x402Version": 2,
+    "error": "PAYMENT-SIGNATURE header is required",
+    "resource": {
+      "url": "https://www.api-xpay.com/x402/uuid",
+      "description": "Generate a random UUID v4",
+      "mimeType": "application/json",
+      "serviceName": "X Pay",
+      "iconUrl": "https://www.api-xpay.com/logo.png",
+      "tags": [
+        "uuid",
+        "id",
+        "generator",
+        "unique",
+        "identifier"
+      ]
+    },
+    "accepts": [
+      {
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "amount": "5000",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "payTo": "0x589a2314a2E05F45e40C4823Da3Ba58D421dB3d8",
+        "maxTimeoutSeconds": 60,
+        "resource": "https://www.api-xpay.com/x402/uuid",
+        "extra": {
+          "name": "USD Coin",
+          "version": "2"
+        }
+      }
+    ],
+    "extensions": {
+      "bazaar": {
+        "info": {
+          "input": {
+            "type": "http",
+            "method": "GET"
+          },
+          "output": {
+            "type": "json",
+            "example": {
+              "success": true,
+              "uuid": "550e8400-e29b-41d4-a716-446655440000",
+              "network": "base",
+              "asset": "USDC"
+            }
+          }
+        },
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "input": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "http"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "HEAD",
+                    "DELETE"
+                  ]
+                },
+                "queryParams": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "method"
+              ],
+              "additionalProperties": false
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "example": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "required": [
+            "input"
+          ]
+        }
+      }
+    }
+  }
+}
