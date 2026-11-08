@@ -27,7 +27,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 22** — Compare mode: diff the handshakes of two endpoints
 - [x] **Day 23** — Rate-limit behavior probe (does the endpoint 429 gracefully?)
 - [x] **Day 24** — Signed-payment replay protection check
-- [ ] **Day 25** — Example fixtures for well-known x402 endpoints
+- [x] **Day 25** — Example fixtures for well-known x402 endpoints
 - [ ] **Day 26** — npm publish preparation (package metadata, files allowlist)
 - [ ] **Day 27** — Docs: troubleshooting guide for common handshake failures
 - [ ] **Day 28** — Docs: "how x402 payments work" explainer

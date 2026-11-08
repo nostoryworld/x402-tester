@@ -62,6 +62,13 @@ import {
   runReplayCheck,
   formatReplayReport,
 } from "./replay.js";
+import {
+  listFixtures,
+  loadFixture,
+  checkFixture,
+  formatFixtureList,
+  formatFixtureReport,
+} from "./fixtures.js";
 
 const args = process.argv.slice(2);
 let [cmd, url, ...flags] = args;
@@ -92,6 +99,7 @@ let burst = DEFAULT_BURST; // --burst <n>: rate-limit burst size (default: 20)
 let schemaArg = null; // --schema <path-or-JSON>: documented shape for a paid response
 let ci = false; // --ci: CI mode — annotations on stderr, warnings fail the run
 let configPath = null; // --config <path>; null = auto-discover x402-tester.json upward
+let fixtureName = null; // --fixture <name>: check a bundled example fixture offline instead of a live URL
 let cliPluginPaths = []; // --plugin <file>, repeatable; appended after config plugins
 // Flags the user set explicitly — config values only fill options the
 // user did NOT set, so CLI flags always beat the config file.
@@ -150,7 +158,7 @@ for (let i = 0; i < flags.length; i++) {
   const sc = flags[i].match(/^--schema=(.+)$/);
   if (sc) { schemaArg = sc[1]; setFlags.add("schema"); }
   // `--json` switches report commands (check, batch, compare, pay, e2e,
-  // replay, benchmark, ratelimit, facilitator, x402scan, bazaar, schema) to machine-readable
+  // replay, benchmark, ratelimit, facilitator, x402scan, bazaar, fixtures, schema) to machine-readable
   // JSON output instead of human text
   if (flags[i] === "--json") { json = true; setFlags.add("json"); }
   // `--ci` enables CI mode for report commands (check, batch, compare,
@@ -169,6 +177,12 @@ for (let i = 0; i < flags.length; i++) {
   if (flags[i] === "--config" && flags[i + 1]) configPath = flags[i + 1];
   const cf = flags[i].match(/^--config=(.+)$/);
   if (cf) configPath = cf[1];
+  // `--fixture <name>` / `--fixture=<name>`: run `check` against a
+  // bundled example fixture's recorded 402 response instead of a live
+  // URL (see fixtures.js). No network request is made.
+  if (flags[i] === "--fixture" && flags[i + 1]) { fixtureName = flags[i + 1]; setFlags.add("fixture"); }
+  const fx = flags[i].match(/^--fixture=(.+)$/);
+  if (fx) { fixtureName = fx[1]; setFlags.add("fixture"); }
   // `--plugin <file>` / `--plugin=<file>`, repeatable: a user-supplied
   // check that runs after a passing handshake (see plugins.js).
   // Config plugins run first, CLI plugins after, in listed order.
@@ -303,7 +317,7 @@ async function loadSchemaArg(arg) {
   const VALUE_FLAGS = new Set([
   "--method", "-m", "--key", "--port", "--endpoint-port", "--rpc",
   "--blockhash", "--decimals", "--retries", "--timeout", "--probes",
-  "--burst", "--schema", "--config", "--plugin", "--report",
+  "--burst", "--schema", "--config", "--plugin", "--report", "--fixture",
 ]);
 
 function positionalArgs(flagList) {
@@ -370,6 +384,8 @@ function usage() {
 
 Usage:
   x402-tester check <url> [--method <METHOD>] [--plugin <file> ...] [--json] [--report md|html]
+  x402-tester check --fixture <name> [--plugin <file> ...] [--json] [--report md|html]
+  x402-tester fixtures [--json] [--report md|html]
   x402-tester compare <urlA> <urlB> [--method <METHOD>] [--json] [--report md|html]
   x402-tester benchmark <url> [--probes <N>] [--method <METHOD>] [--json] [--report md|html]
   x402-tester ratelimit <url> [--burst <N>] [--method <METHOD>] [--json] [--report md|html]
@@ -385,6 +401,13 @@ Usage:
   x402-tester config [--config <path>]
 
 Options:
+  --fixture      Bundled example fixture to check offline instead of a
+                 live URL: a recorded 402 response from a well-known
+                 public x402 endpoint (see 'x402-tester fixtures').
+                 Runs the same handshake validation as a live check
+                 — normalize, validate, price, price sanity — with
+                 no network request and nothing signed or sent.
+                 Cannot be combined with a URL.
   --config       Config file to read (default: x402-tester.json,
                  auto-discovered upward from the working directory).
                  CLI flags beat config values, which beat defaults.
@@ -468,6 +491,11 @@ Options:
 Commands:
   check          Validate the 402 handshake of a paid endpoint, then
                  run any --plugin / configured custom checks against it.
+                 With --fixture <name>, check a bundled example
+                 fixture offline instead of a live URL.
+  fixtures       List the bundled example fixtures: recorded 402
+                 responses from well-known public x402 endpoints,
+                 with their price and where each recording came from.
   compare        Diff the handshakes of two endpoints: run check
                  against each URL and report every payment-term field
                  that differs (price, network, asset, payee, scheme,
@@ -543,6 +571,9 @@ Config file (x402-tester.json):
 
 Examples:
   x402-tester check https://example.com/paid-api
+  x402-tester fixtures
+  x402-tester check --fixture tbs-weather-current
+  x402-tester check --fixture ax1-q-verdict --json
   x402-tester compare https://staging.example.com/paid-api https://example.com/paid-api
   x402-tester batch endpoints.txt --json | jq .failed
   x402-tester check https://example.com/paid-api --json | jq .price
@@ -766,8 +797,10 @@ async function runMock() {
 
 // Commands run without a URL fall back to the config file's first
 // endpoint, so a checked-in config makes `check` a zero-argument run.
+// --fixture supplies its own target, so it skips this fallback.
 if (
   !url &&
+  !fixtureName &&
   (cmd === "check" || cmd === "benchmark" || cmd === "ratelimit" || cmd === "pay" || cmd === "facilitator" || cmd === "x402scan" || cmd === "bazaar") &&
   config.endpoints &&
   config.endpoints.length > 0
@@ -806,39 +839,74 @@ if (cmd === "config") {
       2
     )
   );
-} else if (cmd === "check" && url) {
-  // Load plugins before any network call: a bad plugin path fails
-  // fast, instead of running a handshake whose custom checks then
-  // silently never happen.
-  let plugins = [];
-  if (pluginPaths.length > 0) {
-    try {
-      plugins = await loadPlugins(pluginPaths);
-    } catch (err) {
-      console.error(`error: ${err.message}`);
-      process.exitCode = 1;
-    }
+} else if (cmd === "fixtures" && !url) {
+  // List the bundled example fixtures. --json / --report reuse the
+  // same render path as every other report command.
+  try {
+    const fixtures = await listFixtures();
+    const report = { count: fixtures.length, fixtures };
+    emit(report, (r) => formatFixtureList(r.fixtures), "Example fixtures");
+  } catch (err) {
+    console.error(`error: ${err.message}`);
+    process.exitCode = 1;
   }
-  if (process.exitCode !== 1) {
-    let report = await checkHandshake(url, { method, retries, timeoutMs });
-    if (report.ok && plugins.length > 0) {
-      const results = await runPlugins(plugins, {
-        url,
-        method,
-        handshake: report,
-        requirements: report.requirements,
-        price: report.price,
-      });
-      report = applyPluginResults(report, results);
-    } else if (!report.ok && plugins.length > 0) {
-      // Plugins check the handshake's content, so there is nothing
-      // for them to judge when the handshake itself failed.
-      console.error(
-        `skipping ${plugins.length} plugin check${plugins.length === 1 ? "" : "s"}: handshake failed`
-      );
+} else if (cmd === "check" && (url || fixtureName)) {
+  // A fixture and a URL are two different targets — refuse to guess
+  // which one the user meant.
+  if (url && fixtureName) {
+    console.error("error: --fixture cannot be combined with a URL — check one or the other");
+    process.exitCode = 1;
+  } else {
+    // Load plugins before any network call: a bad plugin path fails
+    // fast, instead of running a handshake whose custom checks then
+    // silently never happen.
+    let plugins = [];
+    if (pluginPaths.length > 0) {
+      try {
+        plugins = await loadPlugins(pluginPaths);
+      } catch (err) {
+        console.error(`error: ${err.message}`);
+        process.exitCode = 1;
+      }
     }
-    emit(report, formatReport, "Handshake check");
-    settle(report, report.ok, "check");
+    if (process.exitCode !== 1) {
+      let report = null;
+      let formatFn = formatReport;
+      if (fixtureName) {
+        // Offline check: the recorded 402 body goes through the same
+        // validation path as a live handshake, with no request made.
+        try {
+          const loaded = await loadFixture(fixtureName);
+          report = checkFixture(loaded);
+          formatFn = formatFixtureReport;
+        } catch (err) {
+          console.error(`error: ${err.message}`);
+          process.exitCode = 1;
+        }
+      } else {
+        report = await checkHandshake(url, { method, retries, timeoutMs });
+      }
+      if (report) {
+        if (report.ok && plugins.length > 0) {
+          const results = await runPlugins(plugins, {
+            url: report.url,
+            method: report.method,
+            handshake: report,
+            requirements: report.requirements,
+            price: report.price,
+          });
+          report = applyPluginResults(report, results);
+        } else if (!report.ok && plugins.length > 0) {
+          // Plugins check the handshake's content, so there is nothing
+          // for them to judge when the handshake itself failed.
+          console.error(
+            `skipping ${plugins.length} plugin check${plugins.length === 1 ? "" : "s"}: handshake failed`
+          );
+        }
+        emit(report, formatFn, "Handshake check");
+        settle(report, report.ok, "check");
+      }
+    }
   }
 } else if (cmd === "compare") {
   // Two URLs: the first is the parsed positional, the second is the

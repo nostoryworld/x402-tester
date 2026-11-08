@@ -83,3 +83,33 @@ test("formatPrice: missing amount is reported, not invented", () => {
   const out = formatPrice({ network: "base", asset: "0xdeadbeef" });
   assert.ok(out.startsWith("no amount specified"));
 });
+
+test("resolveAsset: CAIP-2 eip155 networks map onto the short names", () => {
+  const usdcBase = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+  assert.deepEqual(resolveAsset("eip155:8453", usdcBase), { symbol: "USDC", decimals: 6 });
+  assert.deepEqual(
+    resolveAsset("eip155:1", "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+    { symbol: "USDC", decimals: 6 }
+  );
+  // An unlisted chain id resolves to nothing, never a guessed network.
+  assert.equal(resolveAsset("eip155:999999", usdcBase), null);
+  assert.equal(resolveAsset("eip155:abc", usdcBase), null);
+});
+
+test("resolveAsset: solana:mainnet maps to solana; devnet does not (different mint)", () => {
+  const usdcSol = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  assert.deepEqual(resolveAsset("solana:mainnet", usdcSol), { symbol: "USDC", decimals: 6 });
+  assert.equal(resolveAsset("solana:devnet", usdcSol), null);
+});
+
+test("formatPrice: a real v2 fixture requirement prices in token units, not raw", () => {
+  assert.equal(
+    formatPrice({
+      scheme: "exact",
+      network: "eip155:8453",
+      asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      amount: "1000",
+    }),
+    "0.001 USDC"
+  );
+});

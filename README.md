@@ -68,6 +68,12 @@ x402-tester replay
 # start a mock facilitator + mock paid endpoint on localhost for manual
 # testing (curl your own client against them); stops on Ctrl-C:
 x402-tester mock
+# example fixtures: recorded 402 responses from well-known public x402
+# endpoints, checked offline — same validation as a live check, no
+# network request, nothing signed or sent. List them, then run one:
+x402-tester fixtures
+x402-tester check --fixture tbs-weather-current
+x402-tester check --fixture ax1-q-verdict --json
 ```
 
 Example output for a healthy endpoint:
@@ -176,6 +182,19 @@ Supported keys: `method`, `json`, `ci`, `report` (`"md"` or `"html"`), `rpc`, `b
 - The first payment requirement carries `scheme`, `network`, `payTo`, `asset`, and `amount`
 - Warns on multiple payment options and server-reported error fields
 - With `--schema`, the paid response must match its documented shape: `e2e` checks the live paid response, and `schema` checks a saved response file. Supported keywords: `type`, `required`, `properties`, `additionalProperties`, `items`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `minItems`, `maxItems` — failures name the exact field (`$.items[1].price`)
+
+## Example fixtures
+
+`examples/` holds recorded 402 responses from well-known public x402 endpoints, so the handshake can be exercised offline — useful for learning what a healthy response looks like, and for testing the tool itself without hitting a live service:
+
+| fixture | endpoint | price |
+| --- | --- | --- |
+| `tbs-weather-current` | TBS Weather & Climate API (`GET`) | 0.001 USDC |
+| `xpay-uuid` | X Pay UUID generator (`GET`) | 0.005 USDC |
+| `onesource-block-number` | OneSource latest block height (`GET`, exact + batch-settlement) | 0.001 USDC |
+| `ax1-q-verdict` | AX1 Console token verdict (`POST`) | 0.02 USDC |
+
+Each file records where its body came from (`capturedFrom`: a live 402 probe, or the CDP Bazaar catalog listing) and when. `x402-tester check --fixture <name>` runs the same normalize → validate → price → price-sanity path as a live check, with no network request. Fixtures are never for paying: the recorded `payTo` addresses belong to the services, and a fixture check signs nothing and sends nothing.
 
 ## Roadmap
 

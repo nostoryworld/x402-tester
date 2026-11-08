@@ -9,6 +9,12 @@
  *
  * The registry is intentionally small and extendable: unknown assets
  * fall back to showing the raw amount untouched, never a guess.
+ *
+ * Real x402 v2 responses name networks CAIP-2 style ("eip155:8453",
+ * "solana:mainnet") while this registry is keyed by the short names
+ * the rest of the tool uses ("base", "solana") — resolveAsset maps
+ * the CAIP-2 form onto the short name first, so a recorded fixture
+ * prices the same as a live check would.
  */
 
 const USDC_6 = { symbol: "USDC", decimals: 6 };
@@ -38,13 +44,43 @@ export const KNOWN_ASSETS = {
 
 const EVM_ADDRESS = /^0x[0-9a-f]{40}$/i;
 
+// CAIP-2 EVM chain ids → the short network names this registry is
+// keyed by. Only chains already in KNOWN_ASSETS are mapped; an
+// unlisted chain id resolves to nothing, never to a guessed network.
+// Solana mainnet maps to "solana"; devnet deliberately does not —
+// its USDC mint differs, and resolving it against the mainnet mint
+// would print a wrong price.
+const EIP155_CHAIN_IDS = {
+  1: "ethereum",
+  137: "polygon",
+  8453: "base",
+  84532: "base-sepolia",
+  11155111: "ethereum-sepolia",
+};
+
+/**
+ * Map a network string to the registry's short name: "eip155:8453"
+ * → "base", "solana:mainnet" → "solana", "base" → "base".
+ * Returns null when the network cannot be mapped.
+ */
+export function canonicalNetwork(network) {
+  if (typeof network !== "string") return null;
+  const raw = network.trim().toLowerCase();
+  if (!raw) return null;
+  if (raw.startsWith("eip155:")) {
+    return EIP155_CHAIN_IDS[raw.slice("eip155:".length)] ?? null;
+  }
+  if (raw === "solana:mainnet") return "solana";
+  return raw;
+}
+
 /**
  * Look up a payment asset by network + address/mint.
  * Returns { symbol, decimals } or null when unknown.
  */
 export function resolveAsset(network, asset) {
   if (typeof network !== "string" || typeof asset !== "string") return null;
-  const byNetwork = KNOWN_ASSETS[network.toLowerCase()];
+  const byNetwork = KNOWN_ASSETS[canonicalNetwork(network)];
   if (!byNetwork) return null;
   if (EVM_ADDRESS.test(asset)) {
     return byNetwork[asset.toLowerCase()] ?? null;
