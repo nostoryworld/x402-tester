@@ -29,7 +29,7 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 24** — Signed-payment replay protection check
 - [x] **Day 25** — Example fixtures for well-known x402 endpoints
 - [x] **Day 26** — npm publish preparation (package metadata, files allowlist)
-- [ ] **Day 27** — Docs: troubleshooting guide for common handshake failures
+- [x] **Day 27** — Docs: troubleshooting guide for common handshake failures
 - [ ] **Day 28** — Docs: "how x402 payments work" explainer
 - [ ] **Day 29** — v1.0.0 release prep: changelog and version bump
 - [ ] **Day 30** — Retrospective on the 30 days + roadmap for v2

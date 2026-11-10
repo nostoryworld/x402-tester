@@ -31,9 +31,10 @@ test("bin entry point exists and is executable", () => {
   assert.equal(head, "#!/usr/bin/env node");
 });
 
-test("files allowlist covers src and examples", () => {
+test("files allowlist covers src, examples and docs", () => {
   assert.ok(pkg.files.includes("src"), "src must ship");
   assert.ok(pkg.files.includes("examples"), "examples must ship");
+  assert.ok(pkg.files.includes("docs"), "docs must ship");
   for (const entry of pkg.files) {
     assert.ok(existsSync(join(root, entry)), `${entry} must exist`);
   }
@@ -52,10 +53,8 @@ test("npm pack --dry-run ships only allowlisted files", () => {
   );
   assert.ok(files.length > 0, "pack output must list files");
   assert.ok(files.some((f) => f.startsWith("src/")), "src/ must ship");
-  assert.ok(
-    files.some((f) => f.startsWith("examples/")),
-    "examples/ must ship",
-  );
+  assert.ok(files.some((f) => f.startsWith("examples/")), "examples/ must ship");
+  assert.ok(files.some((f) => f.startsWith("docs/")), "docs/ must ship");
   const forbidden = files.filter(
     (f) =>
       f.startsWith("test/") ||
@@ -74,7 +73,8 @@ test("npm pack --dry-run ships only allowlisted files", () => {
     assert.ok(
       alwaysAllowed.has(f) ||
         f.startsWith("src/") ||
-        f.startsWith("examples/"),
+        f.startsWith("examples/") ||
+        f.startsWith("docs/"),
       `unexpected file in tarball: ${f}`,
     );
   }

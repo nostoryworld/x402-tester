@@ -196,6 +196,14 @@ Supported keys: `method`, `json`, `ci`, `report` (`"md"` or `"html"`), `rpc`, `b
 
 Each file records where its body came from (`capturedFrom`: a live 402 probe, or the CDP Bazaar catalog listing) and when. `x402-tester check --fixture <name>` runs the same normalize → validate → price → price-sanity path as a live check, with no network request. Fixtures are never for paying: the recorded `payTo` addresses belong to the services, and a fixture check signs nothing and sends nothing.
 
+## Troubleshooting
+
+When a check fails, search [docs/troubleshooting.md](docs/troubleshooting.md)
+for the exact error line — it covers every failure the tool reports
+(wrong status instead of 402, empty or invalid 402 bodies, missing
+payment fields, timeouts, dust/whale prices, facilitator and signing
+failures), with the cause and the fix for each.
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) — the project ships one real increment per day: paid end-to-end test flows, discovery-listing checks, report formats, CI integration, and more.
