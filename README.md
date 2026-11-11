@@ -196,6 +196,15 @@ Supported keys: `method`, `json`, `ci`, `report` (`"md"` or `"html"`), `rpc`, `b
 
 Each file records where its body came from (`capturedFrom`: a live 402 probe, or the CDP Bazaar catalog listing) and when. `x402-tester check --fixture <name>` runs the same normalize → validate → price → price-sanity path as a live check, with no network request. Fixtures are never for paying: the recorded `payTo` addresses belong to the services, and a fixture check signs nothing and sends nothing.
 
+## How x402 payments work
+
+New to the protocol? [docs/how-x402-payments-work.md](docs/how-x402-payments-work.md)
+walks through the full flow — the unpaid request, the 402 answer, the
+off-chain signature, facilitator verification, settlement, and replay
+protection — using a real recorded 402 and the tool's own mock flow,
+so you can follow each step with `x402-tester check --fixture`,
+`pay`, `e2e`, and `replay`.
+
 ## Troubleshooting
 
 When a check fails, search [docs/troubleshooting.md](docs/troubleshooting.md)
