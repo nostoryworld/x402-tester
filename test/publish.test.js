@@ -68,7 +68,12 @@ test("npm pack --dry-run ships only allowlisted files", () => {
     [],
     `tarball must not include dev-only files: ${forbidden.join(", ")}`,
   );
-  const alwaysAllowed = new Set(["package.json", "README.md", "LICENSE"]);
+  const alwaysAllowed = new Set([
+    "package.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+  ]);
   for (const f of files) {
     assert.ok(
       alwaysAllowed.has(f) ||
