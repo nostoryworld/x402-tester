@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Docs: 30-day retrospective (`docs/retrospective.md`) and v2 roadmap
+  (`docs/v2-roadmap.md`), with tests keeping the retrospective's numbers
+  honest against the repo (Day 30 — the series is complete).
+
 ## [1.0.0] - 2026-11-12
 
 The first stable release, built over 30 days of daily increments. Everything

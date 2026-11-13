@@ -215,7 +215,7 @@ failures), with the cause and the fix for each.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) — the project ships one real increment per day: paid end-to-end test flows, discovery-listing checks, report formats, CI integration, and more.
+See [ROADMAP.md](ROADMAP.md) — the project shipped one real increment per day for 30 days: paid end-to-end test flows, discovery-listing checks, report formats, CI integration, and more. What the month taught us is in [docs/retrospective.md](docs/retrospective.md); what comes next is in [docs/v2-roadmap.md](docs/v2-roadmap.md).
 
 ## Development
 

@@ -32,4 +32,4 @@ Checked boxes are done; the next unchecked day is always the one to build.
 - [x] **Day 27** — Docs: troubleshooting guide for common handshake failures
 - [x] **Day 28** — Docs: "how x402 payments work" explainer
 - [x] **Day 29** — v1.0.0 release prep: changelog and version bump
-- [ ] **Day 30** — Retrospective on the 30 days + roadmap for v2
+- [x] **Day 30** — Retrospective on the 30 days + roadmap for v2
